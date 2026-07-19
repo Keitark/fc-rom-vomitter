@@ -13,7 +13,11 @@
 
 The native 60-pin Famicom Rev A-FC is the primary design. A frozen 72-pin NES-001 predecessor is preserved under [`experimental/nes/`](experimental/nes/) for comparison and further development; it is not part of the FC manufacturing release.
 
-![Actual KiCad render of the Rev A-FC board](docs/images/board-hero.png)
+## Actual board views
+
+| Component / parts side | Artwork side |
+|---|---|
+| ![Actual KiCad component-side render of Rev A-FC](docs/images/board-top.png) | ![Actual KiCad artwork-side render of Rev A-FC](docs/images/board-hero.png) |
 
 > [!WARNING]
 > Rev A-FC has a fabrication-complete design and build-tested firmware, but the assembled hardware has not completed bench validation. Do not insert an untested board into a Famicom. The 10 mm taller PCB also needs a custom shell; original cartridge-shell compatibility is not claimed.

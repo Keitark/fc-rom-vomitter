@@ -12,7 +12,11 @@
 
 主対象は60ピンのファミコン版 Rev A-FCです。先行して設計した72ピンNES-001版は、比較・今後の実験用として[`experimental/nes/`](experimental/nes/)に凍結保存しています。FC版の製造リリースには含みません。
 
-![Rev A-FCの実際のKiCadレンダー](docs/images/board-hero.png)
+## 実際の基板ビュー
+
+| 部品実装面 | アート面 |
+|---|---|
+| ![Rev A-FC部品実装面の実際のKiCadレンダー](docs/images/board-top.png) | ![Rev A-FCアート面の実際のKiCadレンダー](docs/images/board-hero.png) |
 
 > [!WARNING]
 > Rev A-FCは回路・基板・製造データまで完成していますが、組み立て済み基板での実機検証はまだです。未検証基板をいきなりファミコンへ挿さないでください。また基板上端を10 mm延長しているため、純正カートリッジケースには対応せず、専用ケースが必要です。
