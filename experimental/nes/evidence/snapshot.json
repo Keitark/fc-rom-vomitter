@@ -1,0 +1,28 @@
+{
+  "schema": "fc-rom-vomitter-experimental-nes-snapshot-v1",
+  "variant": "NES-001 72-pin CY62128",
+  "status": "EXPERIMENTAL_NOT_FABRICATION_READY",
+  "pcb": {
+    "layers": 6,
+    "thickness_mm": 1.2
+  },
+  "recorded_gates": {
+    "erc_errors": 0,
+    "erc_reviewed_warnings": 8,
+    "raw_disconnects": 0,
+    "real_drc_errors": 0,
+    "layout_check_failures": 0,
+    "assembly_placement": "BLOCKED_PENDING_REGENERATED_CPL_REVIEW",
+    "bench_validation": "PENDING"
+  },
+  "known_prototype_risks": [
+    "USB D+/D- length skew recorded as 2.63 mm",
+    "USB pair has one-via asymmetry",
+    "No connector-side USB ESD device"
+  ],
+  "source_sha256": {
+    "hardware/nescart.kicad_pcb": "08AB09D1A2D513E31D7D2463B9EED42A5F40DE45618D25A94DF0B8A8EC1A4030",
+    "hardware/nescart.kicad_pro": "A03F5E494C2FA4BA57467D2101A977B03C68AE9CB556A1D1F61A377C191EFB18",
+    "hardware/nescart.kicad_sch": "721BBA2FA6A4F2C6A14D0FFE7A67DB7FF347126131C81FA64AE7B9BE8854FC18"
+  }
+}

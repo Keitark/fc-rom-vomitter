@@ -1,0 +1,36 @@
+name: validate
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  repository:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python scripts/verify_repository.py
+
+  firmware-host-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: cmake -S firmware/host_tests -B firmware/host_tests/build -DCMAKE_BUILD_TYPE=Release
+      - run: cmake --build firmware/host_tests/build --config Release
+      - run: ctest --test-dir firmware/host_tests/build -C Release --output-on-failure
+
+  firmware-esp32-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install "platformio==6.1.18"
+      - run: pio run -d firmware -e esp32-s3

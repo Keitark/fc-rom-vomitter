@@ -1,0 +1,21 @@
+idf_component_register(
+    SRCS
+        "app_main.c"
+        "console_power.c"
+        "controller.c"
+        "ines.c"
+        "rom_slot.c"
+        "rom_store.c"
+        "sram_bus.c"
+        "status_led.c"
+        "web_server.c"
+    INCLUDE_DIRS "."
+    REQUIRES
+        esp_adc
+        esp_event
+        esp_http_server
+        esp_netif
+        esp_partition
+        esp_wifi
+        nvs_flash
+)

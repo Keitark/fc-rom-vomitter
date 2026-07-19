@@ -1,0 +1,4 @@
+(sym_lib_table
+  (version 7)
+  (lib (name "nescart-fc")(type "KiCad")(uri "${KIPRJMOD}/nescart-fc.kicad_sym")(options "")(descr "nescart-fc local symbols"))
+)

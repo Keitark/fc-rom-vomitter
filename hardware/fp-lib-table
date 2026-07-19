@@ -1,0 +1,4 @@
+(fp_lib_table
+  (version 7)
+  (lib (name "nescart-fc")(type "KiCad")(uri "${KIPRJMOD}/nescart-fc.pretty")(options "")(descr "nescart-fc local footprints"))
+)
