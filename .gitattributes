@@ -3,10 +3,14 @@
 *.pdf binary
 *.zip binary
 *.step binary
-*.kicad_pcb text eol=lf
-*.kicad_pro text eol=lf
-*.kicad_sch text eol=lf
-*.kicad_sym text eol=lf
-*.kicad_mod text eol=lf
+*.kicad_pcb binary
+*.kicad_pro binary
+*.kicad_sch binary
+*.kicad_sym binary
+*.kicad_mod binary
 *.csv text eol=lf
 *.json text eol=lf
+
+# These files are release evidence: preserve their exact bytes so the
+# SHA-256 manifest is identical on Windows and Linux checkouts.
+manufacturing/** binary
