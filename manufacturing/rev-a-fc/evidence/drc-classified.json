@@ -1,0 +1,22 @@
+{
+  "real": {
+    "errors": 0,
+    "warnings": 2,
+    "unconnected_pads": 0,
+    "unconnected_signals": 0,
+    "unconnected_power": 0
+  },
+  "waivable": {
+    "errors": 224,
+    "warnings": 0,
+    "unconnected_pads": 0,
+    "unconnected_power": 0
+  },
+  "unconnected_pads": 0,
+  "zone_region_flags": 0,
+  "waivable_power_regions": 0,
+  "power_unconnected_real": [],
+  "power_unconnected_waived": [],
+  "raw_unconnected_items": 0,
+  "summary": "real: 0 errors, 2 warnings, 0 pad opens, 0 signal splits, 0 power disconnects; waivable: 224 errors, 0 warnings, 0 evidenced power disconnects"
+}

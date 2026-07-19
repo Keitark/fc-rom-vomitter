@@ -1,0 +1,4 @@
+== layout_check: 0 FAIL, 3 WARN
+WARN rule1: C17 is 3.5mm from U18 VCC (2.5-3.5)
+WARN rule1: C22 is 2.8mm from U23 VCC (2.5-3.5)
+WARN lesson[routing-via-efficiency]: 2.83 vias/net (corpus median 1.34) -- router thrashing layers

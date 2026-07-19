@@ -1,0 +1,121 @@
+{
+  "schema": "fc-rom-vomitter-public-release-v1",
+  "revision": "Rev A-FC ROM Vomitter 2026-07-15",
+  "validation_status": "fabrication-release-complete; hardware-bench-validation-pending",
+  "source": {
+    "hardware/nescart-fc.kicad_pcb": {
+      "sha256": "39E6F7ADA1B48036DD09709F3E8B08EC9F28BDBDB20F0E2EF14CFA0FFFBB7043",
+      "bytes": 1621470
+    },
+    "hardware/nescart-fc.kicad_pro": {
+      "sha256": "98D5D3F6DDCED958415B429099D05459E0ACD17E84A374F31A8CB90E55B960D5",
+      "bytes": 10484
+    },
+    "hardware/nescart-fc.kicad_sch": {
+      "sha256": "35E9E638CEC987E16C60C78AF702FA734A4A29CD7A1EF5F3FE04FA6DB0CC8E35",
+      "bytes": 98248
+    }
+  },
+  "gates": {
+    "erc_errors": 0,
+    "erc_reviewed_warnings": 8,
+    "raw_unconnected_items": 0,
+    "real_drc_errors": 0,
+    "layout_check_failures": 0,
+    "cpl_registration_unresolved": 0,
+    "silk_unwaived_overlap": 0,
+    "silk_unwaived_over_copper": 0,
+    "intentional_silk_edge_findings": 2
+  },
+  "board": {
+    "layers": 6,
+    "thickness_mm": 1.2,
+    "maximum_envelope_mm": [
+      90.0,
+      66.8
+    ],
+    "controlled_impedance_option_required": false
+  },
+  "files": {
+    "assembly/00_nescart-fc-engineering-BOM.csv": {
+      "sha256": "6617179B90B1EC6C7C489BB7B7FDA612B675F3DCCA41E7D2015D02C6DD2C8271",
+      "bytes": 2088
+    },
+    "assembly/01_nescart-fc-positions-source.csv": {
+      "sha256": "4D9C06CAC179F270FF99479976F7AFCA10CBCD22113F65CFEB0636C7E57CBFEF",
+      "bytes": 5805
+    },
+    "assembly/02_nescart-fc-BOM-jlcpcb.csv": {
+      "sha256": "AE6EA261389A0A7C03826EC4C37966B384467DEAFD3A825AC41B4ED5C2536DAF",
+      "bytes": 1591
+    },
+    "assembly/03_nescart-fc-CPL-jlcpcb-calibrated.csv": {
+      "sha256": "302FACBCBF4C198D0686460AF8E493183CBC93E9F36962AD0FE7076B5B771CD4",
+      "bytes": 2308
+    },
+    "assembly/03_nescart-fc-CPL-source.csv": {
+      "sha256": "2C3A0EFBDDE7F2093BF892C056A5FB1522A71F6E48A914795ACECA6AFA6EB978",
+      "bytes": 3179
+    },
+    "assembly/04_cpl-registration-audit.csv": {
+      "sha256": "BCE651E2F928A3CFC4265E9060C6949A16BEB4D145C6E98DFB4E17669689A587",
+      "bytes": 12143
+    },
+    "assembly/assembly-top.pdf": {
+      "sha256": "84A714F2CAD1406F5174F5959E3028E5F1AF5019E2169ADEB69B20DEF4D70C61",
+      "bytes": 140449
+    },
+    "evidence/board-stats.json": {
+      "sha256": "18E87FE5E87DE19EFD91FC393C44C9367C21EAE3B5EB9E6FF9314E4CA91D17AB",
+      "bytes": 2825
+    },
+    "evidence/cpl-audit.txt": {
+      "sha256": "D5D9DDBA7E934687F6CDE12C92141E91D009EB0219B4D956B449A74F11BC2137",
+      "bytes": 1325
+    },
+    "evidence/drc-classified.json": {
+      "sha256": "F7E76BC33FE8473E90CA2DCBE4839095C64E62A2ED95327C9CF8D4370A63ECE8",
+      "bytes": 612
+    },
+    "evidence/erc.json": {
+      "sha256": "0136710E7803E50D7069B2B1D5E803AAAD7B079F3AEE33D0D1D9FA51540FCCA6",
+      "bytes": 10349
+    },
+    "evidence/layout-check.txt": {
+      "sha256": "46FF755DF4EBEE980B6F49C579CC824D2C32BE824618941FD05BEED25AE2CC41",
+      "bytes": 231
+    },
+    "evidence/manufacturing-bottom.svg": {
+      "sha256": "D05C4755EDC135F0C0368561AB4039865CA0A0196970F11BB367DBA260B683F6",
+      "bytes": 215024
+    },
+    "evidence/manufacturing-top.svg": {
+      "sha256": "74B55783BABE60A885DC1429F6FE6FF1E9BB801DFFBD838214CF30094E7F9904",
+      "bytes": 1150118
+    },
+    "evidence/render-bottom.png": {
+      "sha256": "3F5479EE5E9CEDDF89F8DD24597B4D74440DBE1E122CA7BEDE52192B873CBD9A",
+      "bytes": 245019
+    },
+    "evidence/render-top.png": {
+      "sha256": "FF9909B7535B569116FF77196C63B416015B1F469598CC92F90FA68112E0DFD9",
+      "bytes": 621836
+    },
+    "evidence/silkscreen-audit.json": {
+      "sha256": "D1A6008E4AB0799F8492F62C98C0351F90F0D6A3CBE65CCBAF612404D8F5411A",
+      "bytes": 1376
+    },
+    "evidence/silkscreen-audit.md": {
+      "sha256": "BEAD726E94F06A1076E223CE4C45849DAEA1D2285EB60FC9D3E3B187AA3388DF",
+      "bytes": 575
+    },
+    "gerbers-drill.zip": {
+      "sha256": "8A33842B0C111751EBF1BD1B18A10D1670AA3A3D1E1D4682DB639EA0C7369EBD",
+      "bytes": 398977
+    },
+    "stencil/top-paste-preview.svg": {
+      "sha256": "C4237437DFF730D64947DD51130638619C9F1158D1226CAA2AED8BCA40A65D68",
+      "bytes": 228390
+    }
+  }
+}

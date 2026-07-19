@@ -1,0 +1,30 @@
+# KiCad transient files
+*.kicad_prl
+*.lck
+~*.kicad_*
+*-backups/
+*.bak
+
+# Firmware and host builds
+.pio/
+firmware/sdkconfig
+firmware/sdkconfig.*
+!firmware/sdkconfig.defaults
+firmware/host_tests/build/
+
+# Python/editor/OS
+__pycache__/
+*.py[cod]
+.venv/
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Private workflow data
+.env
+.env.*
+private/
+orders/
+screenshots/
+tmp/

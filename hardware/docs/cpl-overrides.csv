@@ -1,0 +1,11 @@
+Designator,New X,New Y,New Rotation,Evidence
+D1,65.0000,-15.2000,90,"Ported exact SMA package mapping from the JLCPCB-reviewed NES release: cathode bar and both terminals overlapped the footprint. Reconfirm current preview."
+D2,68.7500,-15.2000,90,"Ported exact SMA package mapping from the JLCPCB-reviewed NES release: cathode bar and both terminals overlapped the footprint. Reconfirm current preview."
+J2,76.0000,-15.2209,180,"Ported exact HRO package-origin mapping from the JLCPCB-reviewed NES release: supplier origin is 1.5709 mm inward from KiCad; connector mouth, signal pads, and four shell anchors were verified. Reconfirm current preview."
+R20,74.0000,-55.8000,0,"Exact C217278 has no EasyEDA package data; official LCSC listing identifies symmetric 2-pad 0603 0 ohm package, and KiCad footprint/pad signature matches the already calibrated 0603 resistor family. Reconfirm current preview."
+U13,88.2000,-47.5000,0,"Ported exact CY62128 package rotation mapping from the JLCPCB-reviewed NES release: numbered-pad registration requires horizontal body at JLC rotation 0. Reconfirm pin 1."
+U14,61.5000,-47.5000,0,"Ported exact CY62128 package rotation mapping from the JLCPCB-reviewed NES release: numbered-pad registration requires horizontal body at JLC rotation 0. Reconfirm pin 1."
+U21,106.5000,-54.0000,270,"Ported exact SC-70-6 package mapping from the JLCPCB-reviewed NES release: numbered-pad registration requires JLC rotation 270. Reconfirm pin 1."
+U22,43.0000,-50.0000,270,"Ported exact SC-70-6 package mapping from the JLCPCB-reviewed NES release: numbered-pad registration requires JLC rotation 270. Reconfirm pin 1."
+U23,39.2000,-26.6510,0,"Ported exact ESP32-S3-WROOM supplier-origin mapping from the JLCPCB-reviewed NES release: EasyEDA body origin is 3.651 mm inward in Y while antenna orientation remains unchanged. Reconfirm castellations and antenna edge."
+U25,58.0000,-15.2000,180,"Ported exact SOT-223 mapping from the JLCPCB-reviewed NES release: supplier tab is pad 4 while KiCad tab is a second physical pad 2; all terminals align at JLC rotation 180. Reconfirm tab and pin 1."
