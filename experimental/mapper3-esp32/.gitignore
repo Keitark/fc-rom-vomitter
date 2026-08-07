@@ -1,0 +1,6 @@
+.pio/
+host_tests/build*/
+sdkconfig
+sdkconfig.esp32-s3
+managed_components/
+test-roms/

@@ -24,6 +24,9 @@ jobs:
       - run: cmake -S firmware/host_tests -B firmware/host_tests/build -DCMAKE_BUILD_TYPE=Release
       - run: cmake --build firmware/host_tests/build --config Release
       - run: ctest --test-dir firmware/host_tests/build -C Release --output-on-failure
+      - run: cmake -S experimental/mapper3-esp32/host_tests -B experimental/mapper3-esp32/host_tests/build -DCMAKE_BUILD_TYPE=Release
+      - run: cmake --build experimental/mapper3-esp32/host_tests/build --config Release
+      - run: ctest --test-dir experimental/mapper3-esp32/host_tests/build -C Release --output-on-failure
 
   firmware-esp32-build:
     runs-on: ubuntu-latest
@@ -34,3 +37,4 @@ jobs:
           python-version: "3.11"
       - run: pip install "platformio==6.1.18"
       - run: pio run -d firmware -e esp32-s3
+      - run: pio run -d experimental/mapper3-esp32 -e esp32-s3 -j 1

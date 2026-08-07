@@ -11,7 +11,7 @@
 
 **Upload an NROM homebrew ROM from a phone, load it into SRAM, and run it on a Japanese Famicom.** No EPROM programmer, cartridge swapping, or battery-backed memory.
 
-The native 60-pin Famicom Rev A-FC is the primary design. A frozen 72-pin NES-001 predecessor is preserved under [`experimental/nes/`](experimental/nes/) for comparison and further development; it is not part of the FC manufacturing release.
+The native 60-pin Famicom Rev A-FC is the primary design. A frozen 72-pin NES-001 predecessor is preserved under [`experimental/nes/`](experimental/nes/) for comparison and further development; it is not part of the FC manufacturing release. A separately isolated [ESP32-S3 two-bank Mapper-3 experiment](experimental/mapper3-esp32/) records the post-release bodge wiring, firmware, tests, and limited bench evidence without changing the stable NROM release.
 
 ## Actual board views
 
@@ -123,6 +123,18 @@ These files are published for review and reproducibility, **not as a recommendat
 
 [`experimental/nes/`](experimental/nes/) preserves the earlier 72-pin front-loader NES-001 design. It uses an ATtiny CIC clone to hold the console in reset while the ESP32 loads SRAM, which is materially different from the manual-reset FC flow. The snapshot passed its recorded schematic and PCB checks, but its assembly-placement gate and hardware validation are incomplete, so it is intentionally **not fabrication-ready**.
 
+## Experimental Mapper 3 modification
+
+[`experimental/mapper3-esp32/`](experimental/mapper3-esp32/) documents an
+ESP32-S3-only, two-bank CNROM modification applied to one assembled Rev A-FC
+board. It adds no new processor: a core-1 IRAM polling loop observes CPU D0 and
+the existing decoded control signals, then drives CHR SRAM A13 through GPIO36.
+
+Host tests, the ESP32 build, Mapper-0 regression, and one two-bank Mapper-3
+target passed their recorded checks. Electrical margin, worst-case timing,
+long-run Wi-Fi stress, and multi-board repeatability remain `USER_REVIEW`.
+This is a reproducible experiment, not a revised manufacturing release.
+
 ## Repository map
 
 ```text
@@ -130,6 +142,7 @@ hardware/                 KiCad 10 release source, libraries, models and core ge
 firmware/                 ESP-IDF / PlatformIO loader firmware and host tests
 manufacturing/rev-a-fc/   sanitized Gerber, BOM, CPL, evidence and hashes
 experimental/nes/          frozen 72-pin NES-001 design snapshot (not released)
+experimental/mapper3-esp32/ post-release two-bank CNROM bodge and firmware
 docs/                     architecture, bring-up, manufacturing and licensing notes
 scripts/                  repository and release-integrity checks
 ```
@@ -143,6 +156,7 @@ scripts/                  repository and release-integrity checks
 - [Layout and electrical guidance](hardware/docs/layout-electrical-guidance.md)
 - [Licensing and attribution](docs/licensing.md)
 - [Japanese README / 日本語](README_JA.md)
+- [Experimental ESP32-S3 Mapper 3 modification](experimental/mapper3-esp32/)
 
 ## License and credits
 

@@ -1,0 +1,27 @@
+menu "ROM Vomitter FC"
+
+config NESCART_AP_PASSWORD
+    string "SoftAP password"
+    default "vomit-roms"
+    help
+        WPA2 password for the cartridge upload access point.
+
+config NESCART_AP_CHANNEL
+    int "SoftAP channel"
+    range 1 13
+    default 6
+
+config NESCART_WIFI_TX_POWER_QDBM
+    int "Maximum Wi-Fi TX power in quarter-dBm"
+    range 8 80
+    default 44
+    help
+        44 means 11 dBm. Keep this conservative until console-rail and
+        regulator thermal measurements are complete.
+
+config NESCART_CONSOLE_ADC_THRESHOLD
+    int "Raw ADC threshold for console 5 V present"
+    range 100 4000
+    default 1000
+
+endmenu
