@@ -1,0 +1,62 @@
+{
+  "schema": "fc-rom-vomitter-experiment-validation-v1",
+  "date": "2026-08-07",
+  "status": "USER_REVIEW",
+  "stable_release_modified": false,
+  "baseline_kicad": {
+    "result": "PASS",
+    "public_schematic_matches_release": true,
+    "public_pcb_matches_release": true,
+    "note": "The experiment does not alter the Rev A-FC KiCad or manufacturing trees.",
+    "sha256": {
+      "hardware/nescart-fc.kicad_pro": "98D5D3F6DDCED958415B429099D05459E0ACD17E84A374F31A8CB90E55B960D5",
+      "hardware/nescart-fc.kicad_sch": "35E9E638CEC987E16C60C78AF702FA734A4A29CD7A1EF5F3FE04FA6DB0CC8E35",
+      "hardware/nescart-fc.kicad_pcb": "39E6F7ADA1B48036DD09709F3E8B08EC9F28BDBDB20F0E2EF14CFA0FFFBB7043",
+      "hardware/nescart-fc.kicad_sym": "BC48B81957416F4951E344EC172E9CC6F8A5B796CD7B323F7E107C22D926ACFD",
+      "hardware/nescart-fc_bus_core.kicad_sch": "867FA4F8FBA7A702D082264E14C63E31D3ABBF8918699C62C969470D6BD2E1CE",
+      "hardware/nescart-fc_loader.kicad_sch": "61152A31A3C0F4A14611D3B1485A43633C5E22E6983EF90DB25F51A6B0FA02F0",
+      "hardware/nescart-fc_power_safe.kicad_sch": "17F586C4F6229B58476B0D50BB1B603A279DCB7C8A22D8B0A33B98AB1FC02029",
+      "hardware/nescart-fc_decoupling.kicad_sch": "A5F96B5DADB9304A8446FB5ADD03929E1A367A4D27738E060C643F2E02BFAE54"
+    }
+  },
+  "host_tests": {
+    "result": "PASS",
+    "tests": 1,
+    "failures": 0
+  },
+  "esp32_build": {
+    "result": "PASS",
+    "environment": "esp32-s3",
+    "framework": "ESP-IDF 5.5.0",
+    "cpu_frequency_mhz": 240,
+    "flash_used_bytes": 830773,
+    "flash_capacity_bytes": 3145728,
+    "ram_used_bytes": 35620,
+    "ram_capacity_bytes": 327680,
+    "firmware_bin_bytes": 831184,
+    "firmware_bin_sha256": "2FF73C3222D28A4F4A832EA5C70394B2B32CF6EF66E7926DDAD736B530F4B784",
+    "firmware_elf_sha256": "697C216BB160201E8FA1BC8FB44D8D382600BC2C00A5548BF3667240C8AD40BC"
+  },
+  "mapper_runtime": {
+    "result": "PASS",
+    "processor": "ESP32-S3 core 1",
+    "section": ".iram0.text",
+    "symbol_address": "0x4037547c",
+    "direct_gpio_register_access": true,
+    "hot_loop_function_calls": 0,
+    "wifi_task_core": 0,
+    "load_mode_gate_tests": "PASS"
+  },
+  "bench_validation": {
+    "result": "USER_REVIEW",
+    "boards_tested": 1,
+    "mapper0_regression": "PASS",
+    "two_bank_mapper3_target": "near-emulator-equivalent after final polling revision",
+    "open_qualification": [
+      "powered input margin",
+      "worst-case write timing",
+      "long-run Wi-Fi stress",
+      "multiple-board reproducibility"
+    ]
+  }
+}

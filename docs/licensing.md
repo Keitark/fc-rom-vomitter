@@ -7,6 +7,7 @@ This repository is intentionally dual-licensed.
 The root [MIT license](../LICENSE) applies to:
 
 - `firmware/`;
+- firmware and general README material under `experimental/mapper3-esp32/`;
 - `scripts/`;
 - Python/PowerShell source under `hardware/tools/`, except where a file states otherwise;
 - README files and original general documentation under `docs/`, except designated hardware-derived images and manufacturing views.
@@ -19,6 +20,8 @@ The root [MIT license](../LICENSE) applies to:
 - hardware-specific documentation under `hardware/docs/`;
 - `manufacturing/` artifacts;
 - experimental KiCad hardware and hardware-derived evidence under `experimental/nes/`;
+- `experimental/mapper3-esp32/HARDWARE-PATCH.md`, as hardware-specific
+  modification documentation;
 - PCB renders and hardware artwork under `docs/images/` and `hardware/assets/`.
 
 Attribution: **Keitark, FC ROM Vomitter / nescart-fc Rev A-FC**,

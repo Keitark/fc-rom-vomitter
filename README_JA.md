@@ -10,7 +10,7 @@
 
 **スマホからNROM形式の自作ROMをWi-Fiで送り、実機ファミコンで動かすための開発カートリッジです。** EPROMの書き換えやカートリッジの差し替えは不要です。
 
-主対象は60ピンのファミコン版 Rev A-FCです。先行して設計した72ピンNES-001版は、比較・今後の実験用として[`experimental/nes/`](experimental/nes/)に凍結保存しています。FC版の製造リリースには含みません。
+主対象は60ピンのファミコン版 Rev A-FCです。先行して設計した72ピンNES-001版は、比較・今後の実験用として[`experimental/nes/`](experimental/nes/)に凍結保存しています。FC版の製造リリースには含みません。製造後に試した[ESP32-S3による2バンクMapper 3改造](experimental/mapper3-esp32/README_JA.md)も、安定版NROM設計とは分離して収録しています。
 
 ## 実際の基板ビュー
 
@@ -87,6 +87,17 @@ KiCad 10では[`hardware/nescart-fc.kicad_pro`](hardware/nescart-fc.kicad_pro)�
 ## 実験的なNES版
 
 [`experimental/nes/`](experimental/nes/)には、フロントローダーNES-001用72ピン版を保存しています。ATtinyのCICクローンで本体をリセット状態に保ちながらSRAMをロードする構成で、ファミコン版の手動RESET方式とは異なります。記録上の回路図・PCB検査は通過していますが、実装位置の最終承認と実機検証が未完了のため、**製造可能なリリースとしては扱いません**。
+
+## 実験的なMapper 3改造
+
+[`experimental/mapper3-esp32/`](experimental/mapper3-esp32/README_JA.md)には、
+完成済みRev A-FC 1枚へ施した、ESP32-S3のみで2バンクCNROMを扱う改造を
+収録しています。ジャンパ配線、ピン浮かし、ファームウェア、ホストテスト、
+観測API、限定的な実機結果をまとめています。
+
+Mapper 0の退行確認と2バンクMapper 3の自作ROM実験は通りましたが、入力電圧
+余裕、最悪条件タイミング、長時間Wi-Fi負荷、複数基板での再現性は未認定です。
+したがってこれは製造改版ではなく、状態が`USER_REVIEW`の再現可能な実験です。
 
 ## ライセンス
 
