@@ -13,6 +13,28 @@
 
 The native 60-pin Famicom Rev A-FC is the primary design. A frozen 72-pin NES-001 predecessor is preserved under [`experimental/nes/`](experimental/nes/) for comparison and further development; it is not part of the FC manufacturing release. A separately isolated [ESP32-S3 two-bank Mapper-3 experiment](experimental/mapper3-esp32/) records the post-release bodge wiring, firmware, tests, and limited bench evidence without changing the stable NROM release.
 
+## AI Expo: real hardware → reusable skills
+
+**AIと実機を作る。その経験を、次の設計で使えるスキルにする。**
+Build real hardware with AI—and reuse what the engineering process teaches us.
+
+ROM Vomitter's engineering experience helped develop
+[PCBA Design Skills](https://github.com/Keitark/pcba-design-skills).
+The [ChatPCBA agent plugin](https://github.com/Keitark/chatpcba) packages eleven
+specialist skills into an evidence-gated workflow for Codex. The original
+cartridge predates the complete local ChatPCBA dashboard; it was not produced
+by today's dashboard end to end.
+
+実機開発の経験を再利用可能なスキルへ整理し、ChatPCBAで工程としてつなぎます。
+公開物は実機資料・スキル・エージェントプラグインです。展示用ダッシュボードは
+別のローカル実装であり、公開ホスティングサービスではありません。
+
+Workflow: interview → requirements and applicable checks → circuit and sourcing
+→ readable schematic → applicable simulation → placement/routing → fabrication
+package → JLCPCB review. Engineering gates and human order/payment approval
+remain distinct. See the validation limits below; a photograph is not a complete
+bench qualification report.
+
 ## Actual board views
 
 | Component / parts side | Artwork side |
