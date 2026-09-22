@@ -30,6 +30,10 @@ The native 60-pin Famicom Rev A-FC is the primary design. A frozen 72-pin NES-00
 4. The bus changes to RUN ownership and the blue LED becomes solid.
 5. Press the **Famicom console's red RESET button** to start the game.
 
+For bench and unattended workflows, the firmware also supports [USB-C direct
+upload and optional HTTPS cloud polling](docs/rom-delivery.md). All delivery
+modes use the same validated atomic flash and SRAM-loading path.
+
 Unlike the front-loader NES, the Famicom has no CIC lockout circuit. The cartridge therefore cannot automatically hold and release console reset; the explicit RESET press is part of the Rev A-FC user flow.
 
 ```mermaid
@@ -151,6 +155,7 @@ scripts/                  repository and release-integrity checks
 
 - [Architecture and safety invariants](docs/architecture.md)
 - [First-board bring-up](docs/bring-up.md)
+- [Browser, USB-C and cloud ROM delivery](docs/rom-delivery.md)
 - [Manufacturing and release interpretation](docs/manufacturing.md)
 - [FC60 pin map](hardware/docs/pinout-fc.md)
 - [Layout and electrical guidance](hardware/docs/layout-electrical-guidance.md)

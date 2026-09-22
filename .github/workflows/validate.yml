@@ -37,4 +37,5 @@ jobs:
           python-version: "3.11"
       - run: pip install "platformio==6.1.18"
       - run: pio run -d firmware -e esp32-s3
+      - run: pio run -d firmware -e esp32-s3-cloud-ci
       - run: pio run -d experimental/mapper3-esp32 -e esp32-s3 -j 1

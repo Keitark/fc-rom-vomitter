@@ -2,6 +2,7 @@
 #include "esp_check.h"
 #include "esp_log.h"
 #include "nvs_flash.h"
+#include "usb_loader.h"
 #include "web_server.h"
 
 static const char *TAG = "rom_vomitter";
@@ -15,6 +16,7 @@ void app_main(void)
     }
     ESP_ERROR_CHECK(err);
     ESP_ERROR_CHECK(controller_init());
+    ESP_ERROR_CHECK(usb_loader_start());
     ESP_ERROR_CHECK(web_server_start());
     ESP_LOGI(TAG, "firmware prepared; hardware validation pending board arrival");
 }

@@ -137,6 +137,15 @@ esp_err_t controller_install_ines(const uint8_t *data, size_t length,
         free(candidate);
         return ESP_ERR_TIMEOUT;
     }
+    if (nescart_image_equal(candidate, s_image)) {
+        xSemaphoreGive(s_lock);
+        free(candidate);
+        if (error != NULL && error_length != 0) {
+            error[0] = '\0';
+        }
+        ESP_LOGI(TAG, "received image is unchanged; flash commit skipped");
+        return ESP_OK;
+    }
     set_mode(CONTROLLER_TRANSFERRING,
              "Committing the new image to the inactive flash slot.");
     uint32_t sequence = 0;
