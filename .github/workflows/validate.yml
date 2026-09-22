@@ -39,3 +39,19 @@ jobs:
       - run: pio run -d firmware -e esp32-s3
       - run: pio run -d firmware -e esp32-s3-cloud-ci
       - run: pio run -d experimental/mapper3-esp32 -e esp32-s3 -j 1
+
+  cloud-service:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: service
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: service/package-lock.json
+      - run: npm ci
+      - run: npm run check
+      - run: npm test

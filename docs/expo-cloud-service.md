@@ -1,8 +1,9 @@
 # Planned anonymous Expo cloud service
 
-> **Status: design contract only.** The current firmware implements HTTPS pull
-> from one compile-time URL. It does **not** yet implement the queue,
-> negotiation, or acknowledgement protocol described here.
+> **Status:** the Cloudflare service and its protocol-equivalent tests are
+> implemented in [`service/`](../service/). The current cartridge firmware
+> still implements HTTPS pull from one compile-time URL; it does **not** yet
+> implement this queue, negotiation, or acknowledgement protocol.
 
 This v2 service lets a visitor upload a compatible homebrew ROM from a public
 web page without a ChatGPT account. The service validates and queues the ROM;
@@ -38,14 +39,19 @@ requests use a separate per-device secret and HMAC authentication.
 No ChatGPT sign-in is required for this visitor flow. Operator controls and
 deployment administration remain authenticated separately.
 
-### Proposed HTTP surface
+### HTTP surface
 
 | Method and path | Caller | Result |
 |---|---|---|
 | `POST /api/public/jobs` | Visitor browser | Validate upload and return `202` with a status token, or a bounded `4xx` rejection |
 | `GET /api/public/jobs/{status_token}` | Visitor browser | Return public job state without exposing the ROM or device identity |
 | `POST /api/device/v2/next` | Authenticated cartridge | Report capabilities/state and receive `204` or one leased manifest |
+| `GET /api/device/v2/jobs/{job_id}/rom` | Authenticated cartridge | Download bytes only for the device holding the active lease |
 | `POST /api/device/v2/jobs/{job_id}/result` | Authenticated cartridge | Idempotently acknowledge `installed`, `unchanged`, `deferred`, or `failed` |
+| `GET /api/operator/status` | Authenticated operator | Inspect queue counts, pause state, and last device state |
+| `POST /api/operator/pause` | Authenticated operator | Pause or resume device claims |
+| `POST /api/operator/clear-next` | Authenticated operator | Cancel and delete the oldest queued item |
+| `POST /api/operator/clear-all` | Authenticated operator | Cancel and delete all queued items, bounded per request |
 
 The public status token and the internal job ID are different values. A leaked
 status URL must not authorize download, cancellation, or device operations.
@@ -95,7 +101,7 @@ short-lived manifest:
   "bytes": 40976,
   "sha256": "...",
   "crc32": "d98313b2",
-  "ines": { "mapper": 3, "prg_kib": 32, "chr_kib": 8 },
+    "ines": { "mapper": 0, "prg_kib": 32, "chr_kib": 8 },
   "expires_at": "2026-09-22T12:34:56Z"
 }
 ```
@@ -116,12 +122,12 @@ After processing, the cartridge posts one idempotent result:
 Claims and acknowledgements need leases and idempotency keys so a reset or
 lost response cannot install one queue item twice or strand it permanently.
 
-## Suggested Sites storage layout
+## Cloudflare staging storage layout
 
-The proposed ChatGPT Sites implementation uses server-side routes, D1 for
-metadata and queue state, and private R2 objects for ROM bytes. This is a
-deployment choice, not part of the cartridge protocol; an equivalent service
-can implement the same API elsewhere.
+The staging implementation uses a Cloudflare Worker, D1 for metadata and queue
+state, and private R2 objects for ROM bytes. The API remains hosting-neutral;
+the visitor UI can later be presented through ChatGPT Sites without moving the
+device control plane.
 
 | Store | Data |
 |---|---|
@@ -141,9 +147,8 @@ receives only a short-lived download URL after an authenticated claim.
 - SoftAP browser upload remains the local recovery path if the cloud service or
   venue network is unavailable.
 
-ChatGPT Sites currently supports public signed-out access, server-side code,
-HTTP/HTTPS, and D1/R2 integrations; confirm current beta limits before the
-event in the [official Sites documentation](https://learn.chatgpt.com/docs/sites).
+See [`service/README.md`](../service/README.md) for local verification and
+staging deployment instructions.
 
 ## Implementation acceptance gates
 
