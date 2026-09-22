@@ -1,0 +1,160 @@
+# Planned anonymous Expo cloud service
+
+> **Status: design contract only.** The current firmware implements HTTPS pull
+> from one compile-time URL. It does **not** yet implement the queue,
+> negotiation, or acknowledgement protocol described here.
+
+This v2 service lets a visitor upload a compatible homebrew ROM from a public
+web page without a ChatGPT account. The service validates and queues the ROM;
+the cartridge then negotiates a compatible job, downloads it over HTTPS,
+verifies it, installs it only in a safe hardware state, and reports the result.
+
+The initial public implementation is intended for one supervised cartridge at
+an exhibition, not as an unrestricted ROM-hosting service. Only ROMs that the
+uploader is authorized to use may be submitted.
+
+## Roles and trust boundary
+
+| Role | Responsibility | Must not do |
+|---|---|---|
+| Anonymous visitor | Upload one ROM and retain the returned status URL | Address the cartridge directly or bypass validation |
+| Public web service | Validate, deduplicate, queue, expire, and display status | Expose private object URLs or device credentials |
+| Cartridge | Advertise capabilities, claim a compatible job, verify bytes, install safely, acknowledge result | Trust browser-supplied metadata or install while the console bus is unsafe |
+| Operator | Pause/clear the queue and stop the demo | Approve individual valid uploads during normal auto mode |
+
+The visitor is anonymous to ChatGPT, but not unbounded: the service issues a
+random, HttpOnly session cookie and a non-guessable status token. Device API
+requests use a separate per-device secret and HMAC authentication.
+
+## Visitor flow
+
+1. Open the public Site and upload a `.nes` file.
+2. The server parses the iNES header and validates the complete payload.
+3. A valid, supported image is auto-approved and placed in the FIFO queue.
+4. The page receives a non-guessable status URL and polls for progress.
+5. Status advances through `queued`, `claimed`, `downloaded`, `installed`, or
+   a terminal `rejected`, `failed`, `expired`, or `duplicate` state.
+
+No ChatGPT sign-in is required for this visitor flow. Operator controls and
+deployment administration remain authenticated separately.
+
+### Proposed HTTP surface
+
+| Method and path | Caller | Result |
+|---|---|---|
+| `POST /api/public/jobs` | Visitor browser | Validate upload and return `202` with a status token, or a bounded `4xx` rejection |
+| `GET /api/public/jobs/{status_token}` | Visitor browser | Return public job state without exposing the ROM or device identity |
+| `POST /api/device/v2/next` | Authenticated cartridge | Report capabilities/state and receive `204` or one leased manifest |
+| `POST /api/device/v2/jobs/{job_id}/result` | Authenticated cartridge | Idempotently acknowledge `installed`, `unchanged`, `deferred`, or `failed` |
+
+The public status token and the internal job ID are different values. A leaked
+status URL must not authorize download, cancellation, or device operations.
+
+## Admission gate
+
+Auto-approval means automatic **validation**, not accepting arbitrary bytes.
+Before writing to private object storage, the service must verify:
+
+- exact upload size limit and complete iNES header;
+- supported mapper and PRG/CHR geometry reported by the cartridge capability
+  profile;
+- no trainer or NES 2.0 features unless that exact format is supported;
+- SHA-256 and CRC32 computed by the service, never trusted from the browser;
+- duplicate suppression against queued and active images;
+- per-session/IP cooldown and a bounded queue (initial target: 20 jobs);
+- content expiry and deletion (initial target: one hour after completion or
+  expiry).
+
+Rejected uploads must never receive a downloadable private-object URL.
+
+## Device negotiation
+
+The cartridge polls every 2–3 seconds in the exhibition profile. Each request
+reports the state that affects compatibility and safe installation:
+
+```json
+{
+  "device_id": "demo-cart-01",
+  "firmware": "2.0.0-dev",
+  "protocol": 2,
+  "mappers": [0],
+  "max_rom_bytes": 41488,
+  "active_sha256": "...",
+  "console_power": false,
+  "console_exposed": false
+}
+```
+
+The service returns `204 No Content` when no compatible work exists, or a
+short-lived manifest:
+
+```json
+{
+  "job_id": "01J...",
+  "download_url": "https://.../short-lived-object-url",
+  "bytes": 40976,
+  "sha256": "...",
+  "crc32": "d98313b2",
+  "ines": { "mapper": 3, "prg_kib": 32, "chr_kib": 8 },
+  "expires_at": "2026-09-22T12:34:56Z"
+}
+```
+
+The device must verify TLS, byte count, SHA-256, CRC32, and parsed iNES fields.
+It then passes the image through the existing inactive-slot commit, flash CRC,
+SRAM readback, and console-isolation gates. A job may be downloaded while
+installation is unsafe, but must be reported as `deferred` and not exposed to
+the console until the safety conditions are met.
+
+After processing, the cartridge posts one idempotent result:
+
+- `installed` — verified and made active;
+- `unchanged` — already active with the same hash;
+- `deferred` — valid but waiting for a safe console-power state;
+- `failed` — rejected locally, with a bounded machine-readable error code.
+
+Claims and acknowledgements need leases and idempotency keys so a reset or
+lost response cannot install one queue item twice or strand it permanently.
+
+## Suggested Sites storage layout
+
+The proposed ChatGPT Sites implementation uses server-side routes, D1 for
+metadata and queue state, and private R2 objects for ROM bytes. This is a
+deployment choice, not part of the cartridge protocol; an equivalent service
+can implement the same API elsewhere.
+
+| Store | Data |
+|---|---|
+| D1 | sessions, jobs, hashes, validation result, lease, device status, acknowledgement, expiry |
+| R2 private bucket | validated ROM payload keyed by job ID/hash |
+
+The public browser never receives permanent R2 credentials. The cartridge
+receives only a short-lived download URL after an authenticated claim.
+
+## Operational controls
+
+- Staff-only pause/resume, clear-next, clear-all, and emergency-stop controls.
+- Health view for last device poll, firmware/capabilities, active hash, queue
+  depth, last error, and whether installation is deferred.
+- Strict request/body limits, rate limiting, origin checks, structured audit
+  events, and no storage of account, payment, Wi-Fi, or device secrets in logs.
+- SoftAP browser upload remains the local recovery path if the cloud service or
+  venue network is unavailable.
+
+ChatGPT Sites currently supports public signed-out access, server-side code,
+HTTP/HTTPS, and D1/R2 integrations; confirm current beta limits before the
+event in the [official Sites documentation](https://learn.chatgpt.com/docs/sites).
+
+## Implementation acceptance gates
+
+This v2 design is ready to demonstrate only when:
+
+1. invalid, oversized, unsupported, duplicate, and rate-limited uploads have
+   automated negative tests;
+2. device HMAC, expiry, replay, lease recovery, and idempotent acknowledgement
+   tests pass;
+3. power-on-console and unsafe bus-ownership cases defer installation;
+4. a queued job survives browser refresh and displays the final device result;
+5. private ROM bytes cannot be listed or fetched anonymously;
+6. operator pause and emergency stop are tested on the real cartridge; and
+7. the fixed-URL v1 mode and SoftAP fallback remain usable.
