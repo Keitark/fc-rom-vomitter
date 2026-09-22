@@ -557,6 +557,9 @@ async function route(request: Request, env: Env): Promise<Response> {
 }
 
 export default {
+  async scheduled(_controller: ScheduledController, env: Env): Promise<void> {
+    await expireObjects(env, Math.floor(Date.now() / 1000));
+  },
   async fetch(request: Request, env: Env): Promise<Response> {
     try {
       const response = await route(request, env);

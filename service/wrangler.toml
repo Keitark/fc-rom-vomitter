@@ -4,6 +4,9 @@ compatibility_date = "2026-09-22"
 workers_dev = true
 preview_urls = false
 
+[triggers]
+crons = ["*/5 * * * *"]
+
 [vars]
 DEVICE_ID = "demo-cart-01"
 JOB_TTL_SECONDS = "3600"
