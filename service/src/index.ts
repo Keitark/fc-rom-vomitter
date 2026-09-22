@@ -39,6 +39,10 @@ type JobRow = {
   released_at: number | null;
 };
 
+type GalleryRow = Pick<JobRow, "object_key" | "sha256" | "crc32" | "bytes" | "mapper" | "prg_kib" | "chr_kib" | "mirroring" | "expires_at"> & {
+  id: string; title: string; created_at: number;
+};
+
 const encoder = new TextEncoder();
 const terminalStates = new Set(["installed", "unchanged", "failed", "expired", "cancelled"]);
 
@@ -71,7 +75,7 @@ async function saltedHash(value: string, salt: string): Promise<string> {
   return sha256Hex(encoder.encode(`${salt}\n${value}`));
 }
 
-async function readUpload(request: Request): Promise<{ bytes: Uint8Array; authorized: boolean }> {
+async function readUpload(request: Request): Promise<{ bytes: Uint8Array; authorized: boolean; galleryTitle: string | null }> {
   const contentType = request.headers.get("Content-Type") ?? "";
   const declaredLength = Number(request.headers.get("Content-Length") ?? "0");
   if (declaredLength > MAX_INES_SIZE + 4096) throw new InesError("Upload is too large.", "too_large");
@@ -81,12 +85,19 @@ async function readUpload(request: Request): Promise<{ bytes: Uint8Array; author
     const file = form.get("rom");
     if (!(file instanceof File)) throw new InesError("Select a .nes file.", "missing_file");
     if (file.size > MAX_INES_SIZE) throw new InesError("Upload is too large.", "too_large");
-    return { bytes: new Uint8Array(await file.arrayBuffer()), authorized: form.get("authorized") === "on" };
+    const galleryTitle = form.get("galleryConsent") === "on" ? form.get("galleryTitle") : null;
+    if (galleryTitle !== null && typeof galleryTitle !== "string") throw new InesError("Enter a public gallery title.", "gallery_title_invalid");
+    return { bytes: new Uint8Array(await file.arrayBuffer()), authorized: form.get("authorized") === "on", galleryTitle };
   }
 
   const bytes = new Uint8Array(await request.arrayBuffer());
   if (bytes.byteLength > MAX_INES_SIZE) throw new InesError("Upload is too large.", "too_large");
-  return { bytes, authorized: request.headers.get("X-RV-Authorized") === "true" };
+  return { bytes, authorized: request.headers.get("X-RV-Authorized") === "true", galleryTitle: null };
+}
+
+function cleanGalleryTitle(raw: string): string | null {
+  const title = raw.trim().replace(/\s+/g, " ");
+  return title.length >= 1 && title.length <= 60 && !/[\x00-\x1f\x7f]/.test(title) ? title : null;
 }
 
 async function expireObjects(env: Env, now: number): Promise<void> {
@@ -99,13 +110,32 @@ async function expireObjects(env: Env, now: number): Promise<void> {
       "UPDATE jobs SET state = CASE WHEN state IN ('queued','claimed','downloaded','deferred') THEN 'expired' ELSE state END, object_deleted = 1, updated_at = ? WHERE id = ?",
     ).bind(now, job.id).run();
   }
+  const expiredGallery = await env.DB.prepare(
+    "SELECT id, object_key FROM gallery_items WHERE expires_at <= ? AND object_deleted = 0 LIMIT 10",
+  ).bind(now).all<{ id: string; object_key: string }>();
+  for (const item of expiredGallery.results) {
+    await env.ROMS.delete(item.object_key);
+    await env.DB.prepare("UPDATE gallery_items SET object_deleted = 1 WHERE id = ?").bind(item.id).run();
+  }
   await env.DB.prepare(
     "UPDATE jobs SET state = 'queued', lease_owner = NULL, lease_expires_at = NULL, updated_at = ? WHERE state IN ('claimed','downloaded') AND lease_expires_at < ? AND expires_at > ?",
   ).bind(now, now, now).run();
 }
 
+async function removeGalleryForSourceJob(env: Env, jobId: string, now: number): Promise<void> {
+  const items = await env.DB.prepare(
+    "SELECT id, object_key FROM gallery_items WHERE source_job_id = ? AND object_deleted = 0",
+  ).bind(jobId).all<{ id: string; object_key: string }>();
+  for (const item of items.results) {
+    await env.ROMS.delete(item.object_key);
+    await env.DB.prepare(
+      "UPDATE gallery_items SET object_deleted = 1, expires_at = ? WHERE id = ?",
+    ).bind(now, item.id).run();
+  }
+}
+
 async function uploadJob(request: Request, env: Env, now: number): Promise<Response> {
-  let upload: { bytes: Uint8Array; authorized: boolean };
+  let upload: { bytes: Uint8Array; authorized: boolean; galleryTitle: string | null };
   try {
     upload = await readUpload(request);
   } catch (error) {
@@ -113,6 +143,8 @@ async function uploadJob(request: Request, env: Env, now: number): Promise<Respo
     return jsonError(400, "upload_invalid", "The upload could not be read.");
   }
   if (!upload.authorized) return jsonError(400, "authorization_required", "Confirm that you are authorized to use this ROM.");
+  const galleryTitle = upload.galleryTitle === null ? null : cleanGalleryTitle(upload.galleryTitle);
+  if (upload.galleryTitle !== null && !galleryTitle) return jsonError(422, "gallery_title_invalid", "Enter a public title of 1–60 characters.");
 
   let metadata;
   try {
@@ -147,6 +179,8 @@ async function uploadJob(request: Request, env: Env, now: number): Promise<Respo
   const id = crypto.randomUUID();
   const statusToken = randomToken();
   const objectKey = `jobs/${id}.nes`;
+  const galleryId = galleryTitle ? crypto.randomUUID() : null;
+  const galleryKey = galleryId ? `gallery/${galleryId}.nes` : null;
   const ttl = configurationNumber(env.JOB_TTL_SECONDS, 3600, 1, 86400);
   const expiresAt = now + ttl;
   const crc32 = crc32Hex(upload.bytes);
@@ -156,7 +190,11 @@ async function uploadJob(request: Request, env: Env, now: number): Promise<Respo
     customMetadata: { sha256, crc32 },
   });
   try {
-    await env.DB.prepare(
+    if (galleryKey) await env.ROMS.put(galleryKey, upload.bytes, {
+      httpMetadata: { contentType: "application/octet-stream" },
+      customMetadata: { sha256, crc32 },
+    });
+    const insertJob = env.DB.prepare(
       `INSERT INTO jobs (
         id, status_token, state, object_key, sha256, crc32, bytes,
         mapper, prg_kib, chr_kib, mirroring, session_hash, ip_hash,
@@ -166,9 +204,19 @@ async function uploadJob(request: Request, env: Env, now: number): Promise<Respo
       id, statusToken, objectKey, sha256, crc32, upload.bytes.byteLength,
       metadata.mapper, metadata.prgKib, metadata.chrKib, metadata.mirroring,
       sessionHash, ipHash, now, now, expiresAt,
-    ).run();
+    );
+    const statements = [insertJob];
+    if (galleryId && galleryKey && galleryTitle) statements.push(env.DB.prepare(
+      `INSERT INTO gallery_items (
+        id, source_job_id, title, object_key, sha256, crc32, bytes,
+        mapper, prg_kib, chr_kib, mirroring, created_at, expires_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).bind(galleryId, id, galleryTitle, galleryKey, sha256, crc32, upload.bytes.byteLength,
+      metadata.mapper, metadata.prgKib, metadata.chrKib, metadata.mirroring, now, expiresAt));
+    await env.DB.batch(statements);
   } catch (error) {
     await env.ROMS.delete(objectKey);
+    if (galleryKey) await env.ROMS.delete(galleryKey);
     throw error;
   }
 
@@ -178,10 +226,76 @@ async function uploadJob(request: Request, env: Env, now: number): Promise<Respo
     status_token: statusToken,
     status_url: `${origin}/api/public/jobs/${statusToken}`,
     expires_at: new Date(expiresAt * 1000).toISOString(),
+    gallery_published: Boolean(galleryId),
   }, {
     status: 202,
     headers: { "Set-Cookie": `rv_session=${session}; Path=/; Max-Age=3600; HttpOnly; Secure; SameSite=Strict` },
   });
+}
+
+async function listGallery(env: Env, now: number): Promise<Response> {
+  const items = await env.DB.prepare(
+    "SELECT id, title, mapper, prg_kib, chr_kib, created_at, expires_at FROM gallery_items WHERE expires_at > ? AND object_deleted = 0 ORDER BY created_at DESC LIMIT 30",
+  ).bind(now).all<Pick<GalleryRow, "id" | "title" | "mapper" | "prg_kib" | "chr_kib" | "created_at" | "expires_at">>();
+  return Response.json({ items: items.results.map((item) => ({ ...item,
+    created_at: new Date(item.created_at * 1000).toISOString(),
+    expires_at: new Date(item.expires_at * 1000).toISOString(),
+  })) });
+}
+
+async function queueGalleryItem(request: Request, id: string, env: Env, now: number): Promise<Response> {
+  const item = await env.DB.prepare(
+    "SELECT * FROM gallery_items WHERE id = ? AND expires_at > ? AND object_deleted = 0",
+  ).bind(id, now).first<GalleryRow>();
+  if (!item) return jsonError(404, "gallery_not_found", "This gallery game is no longer available.");
+  const session = cookieValue(request, "rv_session") ?? randomToken(18);
+  const sessionHash = await saltedHash(session, env.RATE_LIMIT_SALT);
+  const ip = request.headers.get("CF-Connecting-IP") ?? request.headers.get("X-Forwarded-For") ?? "local";
+  const ipHash = await saltedHash(ip, env.RATE_LIMIT_SALT);
+  const cooldown = configurationNumber(env.UPLOAD_COOLDOWN_SECONDS, 10, 0, 3600);
+  const recent = await env.DB.prepare(
+    "SELECT created_at FROM jobs WHERE (session_hash = ? OR ip_hash = ?) AND created_at > ? ORDER BY created_at DESC LIMIT 1",
+  ).bind(sessionHash, ipHash, now - cooldown).first();
+  if (recent) return jsonError(429, "cooldown", "Please wait before joining the queue again.");
+  const maxQueue = configurationNumber(env.MAX_QUEUE, 20, 1, 1000);
+  const count = await env.DB.prepare(
+    "SELECT COUNT(*) AS count FROM jobs WHERE state IN ('queued','claimed','downloaded','deferred') AND expires_at > ?",
+  ).bind(now).first<{ count: number }>();
+  if ((count?.count ?? 0) >= maxQueue) return jsonError(503, "queue_full", "The exhibition queue is full.");
+  const source = await env.ROMS.get(item.object_key);
+  if (!source) return jsonError(410, "gallery_not_found", "This gallery game is no longer available.");
+  const bytes = new Uint8Array(await source.arrayBuffer());
+  if (bytes.byteLength !== item.bytes || await sha256Hex(bytes) !== item.sha256 || crc32Hex(bytes) !== item.crc32) {
+    return jsonError(410, "gallery_not_found", "This gallery game failed integrity checking.");
+  }
+  const jobId = crypto.randomUUID();
+  const statusToken = randomToken();
+  const objectKey = `jobs/${jobId}.nes`;
+  const ttl = configurationNumber(env.JOB_TTL_SECONDS, 3600, 1, 86400);
+  const expiresAt = now + ttl;
+  await env.ROMS.put(objectKey, bytes, {
+    httpMetadata: { contentType: "application/octet-stream" },
+    customMetadata: { sha256: item.sha256, crc32: item.crc32 },
+  });
+  try {
+    await env.DB.prepare(
+      `INSERT INTO jobs (
+        id, status_token, state, object_key, sha256, crc32, bytes,
+        mapper, prg_kib, chr_kib, mirroring, session_hash, ip_hash,
+        created_at, updated_at, expires_at
+      ) VALUES (?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).bind(jobId, statusToken, objectKey, item.sha256, item.crc32, item.bytes,
+      item.mapper, item.prg_kib, item.chr_kib, item.mirroring,
+      sessionHash, ipHash, now, now, expiresAt).run();
+  } catch (error) {
+    await env.ROMS.delete(objectKey);
+    throw error;
+  }
+  const origin = new URL(request.url).origin;
+  return Response.json({ state: "queued", status_token: statusToken,
+    status_url: `${origin}/api/public/jobs/${statusToken}`,
+    expires_at: new Date(expiresAt * 1000).toISOString(),
+  }, { status: 202, headers: { "Set-Cookie": `rv_session=${session}; Path=/; Max-Age=3600; HttpOnly; Secure; SameSite=Strict` } });
 }
 
 async function publicStatus(token: string, env: Env, now: number): Promise<Response> {
@@ -386,6 +500,7 @@ async function operatorRoute(request: Request, pathname: string, env: Env, now: 
     if ((cancelled.meta.changes ?? 0) !== 1) return jsonError(409, "job_not_waiting", "The job is no longer waiting.");
     await env.ROMS.delete(job.object_key);
     await env.DB.prepare("UPDATE jobs SET object_deleted=1 WHERE id=?").bind(job.id).run();
+    await removeGalleryForSourceJob(env, job.id, now);
     return Response.json({ cancelled: true, job_id: job.id });
   }
   if (request.method === "POST" && (pathname === "/api/operator/clear-next" || pathname === "/api/operator/clear-all")) {
@@ -394,6 +509,7 @@ async function operatorRoute(request: Request, pathname: string, env: Env, now: 
     for (const job of jobs.results) {
       await env.ROMS.delete(job.object_key);
       await env.DB.prepare("UPDATE jobs SET state='cancelled', object_deleted=1, updated_at=? WHERE id=? AND state='queued'").bind(now, job.id).run();
+      await removeGalleryForSourceJob(env, job.id, now);
     }
     return Response.json({ cancelled: jobs.results.length });
   }
@@ -416,6 +532,9 @@ async function route(request: Request, env: Env): Promise<Response> {
     return Response.json({ ok: true, service: "fc-rom-vomitter-cloud", protocol: 2, time: new Date(now * 1000).toISOString() });
   }
   if (request.method === "POST" && pathname === "/api/public/jobs") return uploadJob(request, env, now);
+  if (request.method === "GET" && pathname === "/api/public/gallery") return listGallery(env, now);
+  const galleryQueueMatch = pathname.match(/^\/api\/public\/gallery\/([0-9a-f-]{36})\/queue$/);
+  if (request.method === "POST" && galleryQueueMatch) return queueGalleryItem(request, galleryQueueMatch[1], env, now);
   const publicMatch = pathname.match(/^\/api\/public\/jobs\/([A-Za-z0-9_-]+)$/);
   if (request.method === "GET" && publicMatch) return publicStatus(publicMatch[1], env, now);
   if (pathname.startsWith("/api/operator/")) return operatorRoute(request, pathname, env, now);
