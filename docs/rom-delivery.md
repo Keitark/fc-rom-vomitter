@@ -40,6 +40,10 @@ before using PlatformIO to flash firmware.
 
 ## HTTPS cloud pull
 
+> The implemented mode below polls one configured URL. The anonymous upload
+> queue, device capability negotiation, and installation acknowledgement are a
+> planned v2 described in [Planned anonymous Expo cloud service](expo-cloud-service.md).
+
 Cloud mode is compile-time opt-in so public source never contains credentials.
 Create the local ignored `firmware/sdkconfig.esp32-s3` through menuconfig:
 
