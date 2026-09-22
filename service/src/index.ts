@@ -149,6 +149,23 @@ async function removeGalleryForSourceJob(env: Env, jobId: string, now: number): 
   }
 }
 
+const OPERATOR_SESSION_SECONDS = 12 * 60 * 60;
+
+function operatorSessionCookie(request: Request, value: string, maxAge: number): string {
+  const secure = new URL(request.url).protocol === "https:" ? "; Secure" : "";
+  return `rv_operator_session=${value}; Path=/api/operator; Max-Age=${maxAge}; HttpOnly; SameSite=Strict${secure}`;
+}
+
+async function authenticateOperatorSession(request: Request, env: Env, now: number): Promise<boolean> {
+  const token = cookieValue(request, "rv_operator_session");
+  if (!token || !/^[A-Za-z0-9_-]{40,96}$/.test(token)) return false;
+  const hash = await sha256Hex(encoder.encode(token));
+  const row = await env.DB.prepare(
+    "SELECT session_hash FROM operator_sessions WHERE session_hash = ? AND expires_at > ?",
+  ).bind(hash, now).first<{ session_hash: string }>();
+  return Boolean(row);
+}
+
 async function uploadJob(request: Request, env: Env, now: number): Promise<Response> {
   let upload: Upload;
   try {
@@ -479,7 +496,37 @@ async function reportResult(requestBody: Uint8Array, jobId: string, env: Env, de
 }
 
 async function operatorRoute(request: Request, pathname: string, env: Env, now: number): Promise<Response> {
-  if (!authenticateOperator(request, env.OPERATOR_TOKEN)) return jsonError(401, "operator_auth_invalid", "Operator authentication failed.");
+  if (request.method === "POST" && pathname === "/api/operator/session") {
+    if (!authenticateOperator(request, env.OPERATOR_TOKEN)) return jsonError(401, "operator_auth_invalid", "Operator authentication failed.");
+    const session = randomToken(32);
+    await env.DB.prepare("DELETE FROM operator_sessions WHERE expires_at <= ?").bind(now).run();
+    await env.DB.prepare(
+      "INSERT INTO operator_sessions (session_hash, created_at, expires_at) VALUES (?, ?, ?)",
+    ).bind(await sha256Hex(encoder.encode(session)), now, now + OPERATOR_SESSION_SECONDS).run();
+    return Response.json({ authenticated: true, expires_at: new Date((now + OPERATOR_SESSION_SECONDS) * 1000).toISOString() }, {
+      headers: { "Set-Cookie": operatorSessionCookie(request, session, OPERATOR_SESSION_SECONDS), "Cache-Control": "no-store" },
+    });
+  }
+  if (request.method === "POST" && pathname === "/api/operator/logout") {
+    if (request.headers.get("Origin") !== new URL(request.url).origin) {
+      return jsonError(403, "operator_origin_invalid", "Operator action must originate from this site.");
+    }
+    const session = cookieValue(request, "rv_operator_session");
+    if (session && /^[A-Za-z0-9_-]{40,96}$/.test(session)) {
+      await env.DB.prepare("DELETE FROM operator_sessions WHERE session_hash = ?")
+        .bind(await sha256Hex(encoder.encode(session))).run();
+    }
+    return Response.json({ authenticated: false }, { headers: { "Set-Cookie": operatorSessionCookie(request, "", 0), "Cache-Control": "no-store" } });
+  }
+  const bearer = authenticateOperator(request, env.OPERATOR_TOKEN);
+  const sessionAuthenticated = bearer ? false : await authenticateOperatorSession(request, env, now);
+  if (!bearer && !sessionAuthenticated) return jsonError(401, "operator_auth_invalid", "Operator authentication failed.");
+  if (sessionAuthenticated && request.method !== "GET" && request.headers.get("Origin") !== new URL(request.url).origin) {
+    return jsonError(403, "operator_origin_invalid", "Operator action must originate from this site.");
+  }
+  if (request.method === "GET" && pathname === "/api/operator/session") {
+    return Response.json({ authenticated: true }, { headers: { "Cache-Control": "no-store" } });
+  }
   if (request.method === "GET" && pathname === "/api/operator/status") {
     const settings = await env.DB.prepare("SELECT value FROM service_settings WHERE key='paused'").first<{ value: string }>();
     const states = await env.DB.prepare("SELECT state, COUNT(*) AS count FROM jobs GROUP BY state").all<{ state: string; count: number }>();

@@ -133,6 +133,29 @@ try {
   assert.equal(statusQueued.dispatch_released, false);
 
   const operatorHeaders = { Authorization: `Bearer ${operatorToken}`, "Content-Type": "application/json" };
+  assert.equal((await fetch(`${base}/api/operator/session`)).status, 401);
+  assert.equal((await fetch(`${base}/api/operator/session`, { method: "POST" })).status, 401);
+  const login = await fetch(`${base}/api/operator/session`, { method: "POST", headers: operatorHeaders });
+  assert.equal(login.status, 200);
+  const sessionCookie = login.headers.get("set-cookie")?.split(";")[0];
+  assert.match(sessionCookie ?? "", /^rv_operator_session=[A-Za-z0-9_-]{40,96}$/);
+  assert.match(login.headers.get("set-cookie") ?? "", /HttpOnly; SameSite=Strict/);
+  assert.equal((await fetch(`${base}/api/operator/session`, { headers: { Cookie: sessionCookie } })).status, 200);
+  assert.equal((await fetch(`${base}/api/operator/queue`, { headers: { Cookie: sessionCookie } })).status, 200);
+  assert.equal((await fetch(`${base}/api/operator/pause`, {
+    method: "POST", headers: { Cookie: sessionCookie, "Content-Type": "application/json" }, body: JSON.stringify({ paused: true }),
+  })).status, 403);
+  assert.equal((await fetch(`${base}/api/operator/pause`, {
+    method: "POST", headers: { Cookie: sessionCookie, Origin: base, "Content-Type": "application/json" }, body: JSON.stringify({ paused: true }),
+  })).status, 200);
+  assert.equal((await fetch(`${base}/api/operator/pause`, {
+    method: "POST", headers: { Cookie: sessionCookie, Origin: base, "Content-Type": "application/json" }, body: JSON.stringify({ paused: false }),
+  })).status, 200);
+  assert.equal((await fetch(`${base}/api/operator/logout`, { method: "POST", headers: { Cookie: sessionCookie } })).status, 403);
+  const logout = await fetch(`${base}/api/operator/logout`, { method: "POST", headers: { Cookie: sessionCookie, Origin: base } });
+  assert.equal(logout.status, 200);
+  assert.match(logout.headers.get("set-cookie") ?? "", /Max-Age=0/);
+  assert.equal((await fetch(`${base}/api/operator/session`, { headers: { Cookie: sessionCookie } })).status, 401);
   const forbiddenQueue = await fetch(`${base}/api/operator/queue`);
   assert.equal(forbiddenQueue.status, 401);
   const waitingQueue = await (await fetch(`${base}/api/operator/queue`, { headers: operatorHeaders })).json();

@@ -27,7 +27,9 @@ has changed on a physical Famicom.
 ## Operator-controlled dispatch
 
 Open `/operator` and enter the operator token. The page is Japanese-first with
-an English switch; the token stays only in page memory. A valid visitor upload
+an English switch. The token is submitted once and never saved in browser
+storage. A 12-hour, HttpOnly, same-site session cookie keeps this browser signed
+in across reloads; use **Sign out** on a shared machine. A valid visitor upload
 remains queued but **unreleased**. The operator presses **Send next game** to
 release exactly one waiting item. A second item cannot be released while one
 is queued for the cartridge, claimed, downloading, or deferred. The cartridge
@@ -56,7 +58,8 @@ exercises upload, validation, duplicate rejection, HMAC authentication, replay
 rejection, operator release, duplicate-release prevention, powered-console
 policy, job lease, private download, idempotent result, public status,
 default-public/private upload options, name privacy, gallery withdrawal, and
-operator pause/resume.
+operator pause/resume, one-time browser login, session expiry/revocation, and
+same-origin checks for cookie-authenticated actions.
 
 ## Local interactive service
 
