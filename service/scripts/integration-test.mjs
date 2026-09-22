@@ -286,14 +286,18 @@ try {
   assert.equal(gallery.items[0].title, "Tiny Test");
   assert.equal(Object.hasOwn(gallery.items[0], "object_key"), false);
   assert.equal(Object.hasOwn(gallery.items[0], "status_token"), false);
-  const queuedFromGallery = await fetch(`${base}/api/public/gallery/${gallery.items[0].id}/queue`, {
+  const crossSiteStyleSelection = await fetch(`${base}/api/public/gallery/${gallery.items[0].id}/queue`, {
     method: "POST", headers: { "CF-Connecting-IP": "192.0.2.44" },
+  });
+  assert.equal(crossSiteStyleSelection.status, 403);
+  const queuedFromGallery = await fetch(`${base}/api/public/gallery/${gallery.items[0].id}/queue`, {
+    method: "POST", headers: { "CF-Connecting-IP": "192.0.2.44", "X-RV-Queue": "true" },
   });
   assert.equal(queuedFromGallery.status, 202);
   const galleryJob = await queuedFromGallery.json();
   assert.equal((await (await fetch(galleryJob.status_url)).json()).state, "queued");
   const repeatedSelection = await fetch(`${base}/api/public/gallery/${gallery.items[0].id}/queue`, {
-    method: "POST", headers: { "CF-Connecting-IP": "192.0.2.44" },
+    method: "POST", headers: { "CF-Connecting-IP": "192.0.2.44", "X-RV-Queue": "true" },
   });
   assert.equal(repeatedSelection.status, 429);
   const galleryQueue = await (await fetch(`${base}/api/operator/queue`, { headers: operatorHeaders })).json();
@@ -303,7 +307,7 @@ try {
   })).status, 200);
   assert.deepEqual((await (await fetch(`${base}/api/public/gallery`)).json()).items, []);
   assert.equal((await fetch(`${base}/api/public/gallery/${gallery.items[0].id}/queue`, {
-    method: "POST", headers: { "CF-Connecting-IP": "192.0.2.45" },
+    method: "POST", headers: { "CF-Connecting-IP": "192.0.2.45", "X-RV-Queue": "true" },
   })).status, 404);
 
   console.log("integration PASS: upload -> lease -> authenticated download -> installed status");

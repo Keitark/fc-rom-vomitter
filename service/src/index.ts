@@ -245,6 +245,7 @@ async function listGallery(env: Env, now: number): Promise<Response> {
 }
 
 async function queueGalleryItem(request: Request, id: string, env: Env, now: number): Promise<Response> {
+  if (request.headers.get("X-RV-Queue") !== "true") return jsonError(403, "queue_confirmation_required", "Select this game from the exhibition page.");
   const item = await env.DB.prepare(
     "SELECT * FROM gallery_items WHERE id = ? AND expires_at > ? AND object_deleted = 0",
   ).bind(id, now).first<GalleryRow>();
