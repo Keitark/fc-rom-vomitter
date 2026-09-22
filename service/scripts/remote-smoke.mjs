@@ -79,6 +79,10 @@ assert.equal(manifest.ines.mapper, 0);
 assert.equal(manifest.install_policy, "safe_now");
 
 const romPath = new URL(manifest.download_url).pathname;
+const anonymousDownload = await fetch(`${serviceUrl}${romPath}`);
+const anonymousError = await expectJson(anonymousDownload, 401);
+assert.equal(anonymousError.error, "device_auth_invalid");
+
 const downloaded = await fetch(`${serviceUrl}${romPath}`, { headers: signed(romPath, "GET") });
 assert.equal(downloaded.status, 200);
 assert.deepEqual(Buffer.from(await downloaded.arrayBuffer()), rom);
@@ -102,4 +106,4 @@ assert.equal(publicStatus.state, "installed");
 assert.equal(publicStatus.result_code, "remote_smoke_ok");
 
 console.log(`remote smoke PASS: ${serviceUrl}`);
-console.log("health -> anonymous upload -> HMAC lease -> private R2 download -> installed status");
+console.log("health -> anonymous upload -> HMAC lease -> anonymous download rejected -> private R2 download -> installed status");

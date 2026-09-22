@@ -135,6 +135,10 @@ try {
   assert.equal((await replay.json()).error, "device_replay");
 
   const romPath = new URL(manifest.download_url).pathname;
+  const anonymousDownload = await fetch(`${base}${romPath}`);
+  assert.equal(anonymousDownload.status, 401);
+  assert.equal((await anonymousDownload.json()).error, "device_auth_invalid");
+
   const downloaded = await fetch(`${base}${romPath}`, { headers: signed(romPath, "GET") });
   assert.equal(downloaded.status, 200);
   assert.deepEqual(Buffer.from(await downloaded.arrayBuffer()), rom);
