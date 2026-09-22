@@ -68,8 +68,8 @@ const server = spawn(process.execPath, [
   "--var", `OPERATOR_TOKEN:${operatorToken}`,
   "--var", "RATE_LIMIT_SALT:test-rate-limit-salt-32-chars",
   "--var", "UPLOAD_COOLDOWN_SECONDS:10",
-  "--var", "LEASE_SECONDS:1",
-  "--var", "JOB_TTL_SECONDS:30",
+  "--var", "LEASE_SECONDS:10",
+  "--var", "JOB_TTL_SECONDS:60",
   "--var", "MAX_QUEUE:2",
 ], { stdio: ["ignore", "pipe", "pipe"] });
 let logs = "";
@@ -184,7 +184,8 @@ try {
   const firstUnsafeManifest = await firstUnsafePoll.json();
   assert.equal(firstUnsafeManifest.install_policy, "defer_until_safe");
 
-  await delay(2100);
+  const leaseRecoveryWaitMs = Math.max(0, Date.parse(firstUnsafeManifest.lease_expires_at) - Date.now() + 1200);
+  await delay(leaseRecoveryWaitMs);
   const leaseRecoveryPoll = await fetch(`${base}${nextPath}`, { method: "POST", headers: { ...signed(nextPath, "POST", unsafeCapabilities), "Content-Type": "application/json" }, body: unsafeCapabilities });
   assert.equal(leaseRecoveryPoll.status, 200);
   const recoveredManifest = await leaseRecoveryPoll.json();
