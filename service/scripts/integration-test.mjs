@@ -57,6 +57,15 @@ async function upload(bytes, session = randomBytes(18).toString("base64url"), ip
   });
 }
 
+async function uploadWithGallery(bytes, { title, consent = true, ip = "192.0.2.40" } = {}) {
+  const form = new FormData();
+  form.set("rom", new Blob([bytes], { type: "application/octet-stream" }), "gallery.nes");
+  form.set("authorized", "on");
+  if (consent) form.set("galleryConsent", "on");
+  if (title !== undefined) form.set("galleryTitle", title);
+  return fetch(`${base}/api/public/jobs`, { method: "POST", headers: { "CF-Connecting-IP": ip }, body: form });
+}
+
 const wrangler = fileURLToPath(new URL("../node_modules/wrangler/bin/wrangler.js", import.meta.url));
 const migrate = spawn(process.execPath, [wrangler, "d1", "migrations", "apply", "DB", "--local"], { stdio: "inherit" });
 assert.equal(await new Promise((resolve) => migrate.on("exit", resolve)), 0, "local D1 migration failed");
@@ -80,6 +89,8 @@ try {
   await waitForServer();
   const health = await (await fetch(`${base}/api/health`)).json();
   assert.equal(health.protocol, 2);
+  const initialGallery = await (await fetch(`${base}/api/public/gallery`)).json();
+  assert.deepEqual(initialGallery.items, []);
 
   const invalid = await upload(Buffer.from("not a rom"), "invalid-session-00000001", "192.0.2.11");
   assert.equal(invalid.status, 422);
@@ -253,7 +264,54 @@ try {
   const expiredStatus = await (await fetch(thirdQueued.status_url)).json();
   assert.equal(expiredStatus.state, "expired");
 
+  const invalidGalleryTitle = await uploadWithGallery(makeRom({ fill: 0x61 }), { title: "   ", ip: "192.0.2.41" });
+  assert.equal(invalidGalleryTitle.status, 422);
+  assert.equal((await invalidGalleryTitle.json()).error, "gallery_title_invalid");
+  const privateUpload = await uploadWithGallery(makeRom({ fill: 0x62 }), { title: "Ignored", consent: false, ip: "192.0.2.42" });
+  assert.equal(privateUpload.status, 202);
+  assert.equal((await privateUpload.json()).gallery_published, false);
+  assert.deepEqual((await (await fetch(`${base}/api/public/gallery`)).json()).items, []);
+  const privateWaiting = await (await fetch(`${base}/api/operator/queue`, { headers: operatorHeaders })).json();
+  assert.equal(privateWaiting.jobs.length, 1);
+  assert.equal((await fetch(`${base}/api/operator/jobs/${privateWaiting.jobs[0].id}/cancel`, {
+    method: "POST", headers: operatorHeaders,
+  })).status, 200);
+
+  const publicUpload = await uploadWithGallery(makeRom({ fill: 0x63 }), { title: "  Tiny   Test  ", ip: "192.0.2.43" });
+  assert.equal(publicUpload.status, 202);
+  const publicJob = await publicUpload.json();
+  assert.equal(publicJob.gallery_published, true);
+  const gallery = await (await fetch(`${base}/api/public/gallery`)).json();
+  assert.equal(gallery.items.length, 1);
+  assert.equal(gallery.items[0].title, "Tiny Test");
+  assert.equal(Object.hasOwn(gallery.items[0], "object_key"), false);
+  assert.equal(Object.hasOwn(gallery.items[0], "status_token"), false);
+  const crossSiteStyleSelection = await fetch(`${base}/api/public/gallery/${gallery.items[0].id}/queue`, {
+    method: "POST", headers: { "CF-Connecting-IP": "192.0.2.44" },
+  });
+  assert.equal(crossSiteStyleSelection.status, 403);
+  const queuedFromGallery = await fetch(`${base}/api/public/gallery/${gallery.items[0].id}/queue`, {
+    method: "POST", headers: { "CF-Connecting-IP": "192.0.2.44", "X-RV-Queue": "true" },
+  });
+  assert.equal(queuedFromGallery.status, 202);
+  const galleryJob = await queuedFromGallery.json();
+  assert.equal((await (await fetch(galleryJob.status_url)).json()).state, "queued");
+  const repeatedSelection = await fetch(`${base}/api/public/gallery/${gallery.items[0].id}/queue`, {
+    method: "POST", headers: { "CF-Connecting-IP": "192.0.2.44", "X-RV-Queue": "true" },
+  });
+  assert.equal(repeatedSelection.status, 429);
+  const galleryQueue = await (await fetch(`${base}/api/operator/queue`, { headers: operatorHeaders })).json();
+  assert.equal(galleryQueue.jobs.length, 2);
+  assert.equal((await fetch(`${base}/api/operator/jobs/${publicJob.job_id}/cancel`, {
+    method: "POST", headers: operatorHeaders,
+  })).status, 200);
+  assert.deepEqual((await (await fetch(`${base}/api/public/gallery`)).json()).items, []);
+  assert.equal((await fetch(`${base}/api/public/gallery/${gallery.items[0].id}/queue`, {
+    method: "POST", headers: { "CF-Connecting-IP": "192.0.2.45", "X-RV-Queue": "true" },
+  })).status, 404);
+
   console.log("integration PASS: upload -> lease -> authenticated download -> installed status");
+  console.log("gallery PASS: private default, opt-in title, metadata-only list, selection queue, cooldown, cancellation withdrawal");
   console.log("negative PASS: invalid, unauthorized, oversize, mapper, duplicate, cooldown, queue, replay, and pause gates");
   console.log("lifecycle PASS: lease recovery, unsafe deferral, later install, idempotency conflict, and expiry cleanup");
 } catch (error) {
