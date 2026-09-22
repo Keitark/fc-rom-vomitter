@@ -223,6 +223,7 @@ async function uploadJob(request: Request, env: Env, now: number): Promise<Respo
   const origin = new URL(request.url).origin;
   return Response.json({
     state: "queued",
+    job_id: id,
     status_token: statusToken,
     status_url: `${origin}/api/public/jobs/${statusToken}`,
     expires_at: new Date(expiresAt * 1000).toISOString(),

@@ -279,7 +279,8 @@ try {
 
   const publicUpload = await uploadWithGallery(makeRom({ fill: 0x63 }), { title: "  Tiny   Test  ", ip: "192.0.2.43" });
   assert.equal(publicUpload.status, 202);
-  assert.equal((await publicUpload.json()).gallery_published, true);
+  const publicJob = await publicUpload.json();
+  assert.equal(publicJob.gallery_published, true);
   const gallery = await (await fetch(`${base}/api/public/gallery`)).json();
   assert.equal(gallery.items.length, 1);
   assert.equal(gallery.items[0].title, "Tiny Test");
@@ -297,7 +298,7 @@ try {
   assert.equal(repeatedSelection.status, 429);
   const galleryQueue = await (await fetch(`${base}/api/operator/queue`, { headers: operatorHeaders })).json();
   assert.equal(galleryQueue.jobs.length, 2);
-  assert.equal((await fetch(`${base}/api/operator/jobs/${galleryQueue.jobs[0].id}/cancel`, {
+  assert.equal((await fetch(`${base}/api/operator/jobs/${publicJob.job_id}/cancel`, {
     method: "POST", headers: operatorHeaders,
   })).status, 200);
   assert.deepEqual((await (await fetch(`${base}/api/public/gallery`)).json()).items, []);
