@@ -24,6 +24,11 @@ Thumbs.db
 # Private workflow data
 .env
 .env.*
+.dev.vars
+.dev.vars.*
+!service/.dev.vars.example
+service/node_modules/
+service/.wrangler/
 private/
 orders/
 screenshots/

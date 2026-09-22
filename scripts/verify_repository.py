@@ -12,8 +12,9 @@ from urllib.parse import unquote
 
 ROOT = Path(__file__).resolve().parents[1]
 TEXT_SUFFIXES = {
-    ".c", ".h", ".md", ".py", ".ps1", ".txt", ".csv", ".json",
-    ".ini", ".yml", ".yaml", ".kicad_pcb", ".kicad_pro", ".kicad_sch",
+    ".c", ".h", ".md", ".py", ".ps1", ".txt", ".csv", ".json", ".jsonc",
+    ".ini", ".yml", ".yaml", ".toml", ".sql", ".ts", ".mjs", ".html", ".css",
+    ".kicad_pcb", ".kicad_pro", ".kicad_sch",
     ".kicad_sym", ".kicad_mod",
 }
 BANNED_PARTS = {"__pycache__", ".pio", ".codex", ".claude", "orders", "private", "screenshots", "states"}
@@ -43,7 +44,7 @@ def files() -> list[Path]:
 def check_scope(paths: list[Path]) -> list[str]:
     failures = []
     allowed_top = {
-        ".github", "LICENSES", "docs", "experimental", "firmware", "hardware", "manufacturing", "scripts",
+        ".github", "LICENSES", "docs", "experimental", "firmware", "hardware", "manufacturing", "scripts", "service",
         ".gitattributes", ".gitignore", "AGENTS.md", "CONTRIBUTING.md", "LICENSE",
         "README.md", "README_JA.md", "SECURITY.md",
     }

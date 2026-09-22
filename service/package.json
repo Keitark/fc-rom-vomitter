@@ -1,0 +1,23 @@
+{
+  "name": "fc-rom-vomitter-cloud",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "tsc --noEmit",
+    "test": "npm run test:unit && npm run test:integration",
+    "test:unit": "tsx --test test/*.test.ts",
+    "test:integration": "node scripts/integration-test.mjs",
+    "test:remote": "node scripts/remote-smoke.mjs",
+    "dev": "wrangler dev",
+    "db:local": "wrangler d1 migrations apply DB --local",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "5.20260922.1",
+    "@types/node": "^24.10.0",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.2",
+    "wrangler": "4.136.2"
+  }
+}

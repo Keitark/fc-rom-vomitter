@@ -1,8 +1,9 @@
 # 展示向け匿名クラウドサービス案
 
-> **状態: 設計仕様のみ。** 現在のファームウェアに実装済みなのは、ビルド時に
-> 指定した1つのHTTPS URLからの取得です。ここで説明するキュー、端末ネゴシエーション、
-> 完了通知は**まだ実装されていません**。
+> **状態:** Cloudflareサービスとプロトコル互換テストは
+> [`service/`](../service/) に実装済みです。現在のカートリッジファームウェアに
+> 実装済みなのは、ビルド時に指定した1つのHTTPS URLからの取得です。ここで説明する
+> キュー、端末ネゴシエーション、完了通知はファームウェア側にはまだ実装されていません。
 
 このv2サービスでは、来場者がChatGPTアカウントなしで公開Webページから対応
 homebrew ROMを送信できます。サービス側で検査してキューへ登録し、カートリッジが
@@ -38,14 +39,19 @@ HttpOnlyセッションCookieと推測困難な状態確認トークンを発行
 この来場者フローにChatGPTログインは不要です。運営者操作とデプロイ管理は別途認証
 します。
 
-### HTTP API案
+### HTTP API
 
 | methodとpath | 呼出元 | 結果 |
 |---|---|---|
 | `POST /api/public/jobs` | 来場者browser | uploadを検査し、状態token付き`202`、または範囲を限定した`4xx`拒否を返す |
 | `GET /api/public/jobs/{status_token}` | 来場者browser | ROMや端末identityを出さずに公開可能なjob状態を返す |
 | `POST /api/device/v2/next` | 認証済みcart | 能力/状態を通知し、`204`またはlease付きmanifest 1件を受け取る |
+| `GET /api/device/v2/jobs/{job_id}/rom` | 認証済みcart | 有効なleaseを持つ端末だけにROM byte列を返す |
 | `POST /api/device/v2/jobs/{job_id}/result` | 認証済みcart | `installed`、`unchanged`、`deferred`、`failed`を冪等に通知する |
+| `GET /api/operator/status` | 認証済み運営者 | queue件数、停止状態、最後の端末状態を確認する |
+| `POST /api/operator/pause` | 認証済み運営者 | 端末によるclaimを停止または再開する |
+| `POST /api/operator/clear-next` | 認証済み運営者 | 最古の待機jobを取消し、payloadを削除する |
+| `POST /api/operator/clear-all` | 認証済み運営者 | 待機jobを1 requestの上限内ですべて取消・削除する |
 
 公開用status tokenと内部job IDは別の値にします。状態確認URLが漏れても、ROM取得、
 取消、端末操作を認可してはいけません。
@@ -93,7 +99,7 @@ HttpOnlyセッションCookieと推測困難な状態確認トークンを発行
   "bytes": 40976,
   "sha256": "...",
   "crc32": "d98313b2",
-  "ines": { "mapper": 3, "prg_kib": 32, "chr_kib": 8 },
+    "ines": { "mapper": 0, "prg_kib": 32, "chr_kib": 8 },
   "expires_at": "2026-09-22T12:34:56Z"
 }
 ```
@@ -113,11 +119,11 @@ HttpOnlyセッションCookieと推測困難な状態確認トークンを発行
 リセットや応答消失で二重導入やジョブの永久停止が起きないよう、claimとackにはleaseと
 冪等キーを使います。
 
-## Sitesでの保存構成案
+## Cloudflareステージングの保存構成
 
-ChatGPT Sites版では、サーバー側route、メタデータとキュー状態にD1、ROM本体に非公開
-R2を使う想定です。これはデプロイ方式であり、カートリッジプロトコルの必須条件では
-ありません。同じAPIを別サービスで実装しても構いません。
+ステージング版ではCloudflare Worker、メタデータとキュー状態にD1、ROM本体に非公開
+R2を使います。API自体はhosting非依存です。端末control planeを移さずに、来場者UIだけを
+後からChatGPT Sitesで見せることもできます。
 
 | 保存先 | 内容 |
 |---|---|
@@ -135,9 +141,8 @@ R2を使う想定です。これはデプロイ方式であり、カートリッ
 - account、payment、Wi-Fi、端末秘密鍵をlogへ保存しない
 - クラウドや会場ネットワーク障害時もSoftAPブラウザをローカル復旧経路として残す
 
-ChatGPT Sitesは現在、未ログイン来場者への公開、サーバー側コード、HTTP/HTTPS、D1/R2
-連携を提供しています。公開前に[公式Sitesドキュメント](https://learn.chatgpt.com/docs/sites)
-で最新のベータ制限を再確認してください。
+ローカル検証とステージングdeploy手順は
+[`service/README.md`](../service/README.md)を参照してください。
 
 ## 実装完了の判定
 
