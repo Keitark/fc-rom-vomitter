@@ -388,7 +388,7 @@ export default {
       headers.set("Referrer-Policy", "no-referrer");
       headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
       if ((headers.get("Content-Type") ?? "").startsWith("text/html")) {
-        headers.set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'");
+        headers.set("Content-Security-Policy", "default-src 'none'; img-src https://raw.githubusercontent.com; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'");
       }
       if (new URL(request.url).pathname.startsWith("/api/")) headers.set("Cache-Control", "no-store");
       return new Response(response.body, { status: response.status, statusText: response.statusText, headers });

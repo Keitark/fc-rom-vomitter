@@ -6,6 +6,19 @@ metadata in D1 and validated iNES payloads in a private R2 bucket. No ROM is
 included in this repository or its tests; the integration test synthesizes a
 minimal byte-pattern fixture.
 
+## Visitor page
+
+The public page is **Famicom Game Drop**. It defaults to Japanese, has an
+English switch, explains the three-step upload flow, and shows the actual
+KiCad board render. It translates upload errors and job states while keeping
+the existing `/api/public/jobs` protocol. A status URL can be saved and
+reopened; the token stays in the URL fragment.
+
+The page explicitly says that automatic cartridge pickup from this queue is
+still in development. A successful upload currently proves validation and
+queue admission, not that the game has changed on a physical Famicom. The
+board render remains CC BY-SA 4.0; see `docs/licensing.md`.
+
 ## Local verification
 
 ```powershell
