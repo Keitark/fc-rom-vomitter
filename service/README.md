@@ -9,15 +9,20 @@ minimal byte-pattern fixture.
 ## Visitor page
 
 The public page is **Famicom Game Drop**. It defaults to Japanese, has an
-English switch, explains the three-step upload flow, and shows the actual
-KiCad board render. It translates upload errors and job states while keeping
+English switch and explains the three-step upload flow. It translates upload
+errors and job states while keeping
 the existing `/api/public/jobs` protocol. A status URL can be saved and
 reopened; the token stays in the URL fragment.
 
+Visitor form uploads appear in the public gallery by default. The uploader
+can instead check **Keep this game private**; raw API uploads remain private.
+An optional comment is displayed only for public games. Names are visible to
+staff only unless the uploader separately opts to publish one. The gallery
+does not expose ROM download URLs. Existing one-hour expiry is unchanged.
+
 The page explicitly says that physical cartridge pickup is unverified. A
 successful upload proves validation and queue admission, not that the game
-has changed on a physical Famicom. The board render remains CC BY-SA 4.0; see
-`docs/licensing.md`.
+has changed on a physical Famicom.
 
 ## Operator-controlled dispatch
 
@@ -32,6 +37,11 @@ when the cartridge advertises that its locally tested configuration permits
 it; staff must then press the Famicom RESET button after the new image is
 verified. This last step is not yet physically validated.
 
+The operator can also withdraw a public-gallery listing without cancelling
+the source ROM submission or already queued plays. Names and comments in the
+operator queue require the operator token and are cleared when the source job
+expires or is cancelled.
+
 ## Local verification
 
 ```powershell
@@ -44,7 +54,8 @@ npm test
 The integration test starts `wrangler dev` with local D1/R2 emulation and
 exercises upload, validation, duplicate rejection, HMAC authentication, replay
 rejection, operator release, duplicate-release prevention, powered-console
-policy, job lease, private download, idempotent result, public status, and
+policy, job lease, private download, idempotent result, public status,
+default-public/private upload options, name privacy, gallery withdrawal, and
 operator pause/resume.
 
 ## Local interactive service
@@ -70,7 +81,7 @@ images in repository tests.
 ## Staging deployment
 
 Provision one D1 database and one private R2 bucket, put the D1 identifier in
-`wrangler.toml`, apply both migrations remotely, set all three secrets with
+`wrangler.toml`, apply all migrations remotely, set all three secrets with
 `wrangler secret put`, then deploy. The `workers.dev` hostname is the staging
 endpoint; attaching a custom domain is a separate, reviewed step.
 

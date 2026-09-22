@@ -11,7 +11,7 @@ export const visitorPage = `<!doctype html>
     * { box-sizing:border-box; }
     html { scroll-behavior:smooth; }
     body { margin:0; background:var(--canvas); color:var(--ink); font:16px/1.6 system-ui,-apple-system,"Segoe UI",sans-serif; }
-    button,input { font:inherit; }
+    button,input,textarea { font:inherit; }
     button { cursor:pointer; }
     a { color:inherit; text-underline-offset:.18em; }
     :focus-visible { outline:3px solid #d77b28; outline-offset:3px; }
@@ -56,12 +56,19 @@ export const visitorPage = `<!doctype html>
     .file-action { flex:none; padding:8px 13px; border:1px solid #9cb5a5; border-radius:9px; background:white; color:var(--deep); font-size:.88rem; font-weight:750; }
     .file-name { min-width:0; overflow-wrap:anywhere; color:var(--muted); font-size:.88rem; }
     .field-hint { margin:8px 0 18px; color:var(--muted); font-size:.85rem; }
+    .text-field { display:block; margin:18px 0; }
+    .text-field input,.text-field textarea { display:block; width:min(100%,520px); margin-top:6px; padding:10px 12px; border:1px solid #9cb5a5; border-radius:9px; background:white; color:var(--ink); }
+    .text-field textarea { min-height:84px; resize:vertical; }
+    .text-field .field-hint { display:block; margin:4px 0 0; font-weight:400; }
     .gallery-consent { margin-top:19px; padding:17px; border:1px solid var(--line); border-radius:14px; background:#f7faf5; }
     .gallery-consent .check { margin-bottom:5px; }
     .gallery-consent p { margin:0 0 0 28px; color:var(--muted); font-size:.82rem; }
+    .gallery-consent .gallery-default { margin:0 0 13px; color:var(--deep); font-size:.9rem; font-weight:750; }
     .gallery-title { display:block; max-width:430px; margin:14px 0 0 28px; }
     .gallery-title input { display:block; width:100%; margin-top:6px; padding:10px 12px; border:1px solid #9cb5a5; border-radius:9px; background:white; }
     .gallery-title:has(input:disabled) { display:none; }
+    .gallery-consent .name-public { margin:14px 0 0 28px; }
+    .gallery-consent .name-public:has(input:disabled) { display:none; }
     .check { display:flex; align-items:flex-start; gap:10px; margin:0 0 20px; font-size:.92rem; }
     .check input { width:18px; height:18px; margin:4px 0 0; accent-color:#1c704f; flex:none; }
     .primary { width:100%; min-height:52px; border:0; border-radius:12px; background:var(--deep); color:white; font-weight:850; box-shadow:0 8px 16px #123b2e25; }
@@ -86,6 +93,7 @@ export const visitorPage = `<!doctype html>
     .gallery-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:12px; }
     .gallery-item { padding:17px; border:1px solid #c6dacb; border-radius:15px; background:var(--paper); }
     .gallery-item h3 { margin:0 0 5px; font-size:1.04rem; overflow-wrap:anywhere; }
+    .gallery-item .gallery-comment { white-space:pre-wrap; overflow-wrap:anywhere; color:var(--ink); font-size:.9rem; }
     .gallery-item p { margin:0 0 13px; color:var(--muted); font-size:.82rem; }
     .gallery-item button { border:0; border-radius:9px; background:var(--deep); color:white; padding:9px 13px; font-size:.88rem; font-weight:750; }
     .gallery-item button:disabled { opacity:.55; cursor:wait; }
@@ -113,12 +121,19 @@ export const visitorPage = `<!doctype html>
   </header>
   <main class="shell">
     <section class="hero" aria-labelledby="page-title">
-      <div><p class="eyebrow" data-i18n="eyebrow">ファミコン実機を使った展示プロジェクト</p><h1 id="page-title">ゲームを、<br>ファミコンへ。</h1><p class="lead" data-i18n="heroLead">自作の .nes ファイルを選ぶと、対応形式か確かめて展示用カートリッジの受付リストに登録します。</p><ul class="hero-points"><li data-i18n="point1">スマホから使える</li><li data-i18n="point2">アカウント不要</li><li data-i18n="point3">ファイルは一時保存</li></ul></div>
+      <div><p class="eyebrow" data-i18n="eyebrow">ファミコン実機を使った展示プロジェクト</p><h1 id="page-title">あなたのゲームを<br>ファミコンへ！</h1><p class="lead" data-i18n="heroLead">自作の .nes ファイルを選ぶと、対応形式か確かめて展示用カートリッジの受付リストに登録します。</p><ul class="hero-points"><li data-i18n="point1">スマホから使える</li><li data-i18n="point2">アカウント不要</li><li data-i18n="point3">ファイルは一時保存</li></ul></div>
     </section>
     <aside class="notice" aria-label="現在の公開状況" data-i18n-aria="noticeTitle"><strong data-i18n="noticeTitle">現在の公開状況</strong><p data-i18n="noticeBody">ファイルの受付と順番待ちは試せます。カートリッジがこのクラウドから自動で受信する機能は準備中のため、今はアップロードだけで実機のゲームは切り替わりません。</p></aside>
     <section class="work-area" aria-label="ゲームファイルの登録" data-i18n-aria="uploadAria">
       <div class="upload-card" id="upload-area"><h2 data-i18n="uploadTitle">ゲームファイルを登録</h2><p class="intro" data-i18n="uploadIntro">ファイルを選び、利用できることを確認して送信してください。</p>
-        <form id="upload"><label class="field-label" for="rom" data-i18n="fileLabel">ゲームファイル（.nes）</label><input class="file-input" id="rom" name="rom" type="file" accept=".nes,application/octet-stream" aria-describedby="fileHint" required><label class="file-picker" for="rom"><span class="file-action" data-i18n="chooseFile">ファイルを選ぶ</span><span class="file-name" id="fileName">選択されていません</span></label><p id="fileHint" class="field-hint" data-i18n="fileHint">対応形式は下の「使えるファイル」をご覧ください。</p><label class="check"><input name="authorized" type="checkbox" required><span data-i18n="rights">このファイルを使用・送信する権利があります。</span></label><div class="gallery-consent"><label class="check"><input id="galleryConsent" name="galleryConsent" type="checkbox"><span data-i18n="galleryConsent">このゲームを公開ギャラリーに載せてもよい（任意）</span></label><p data-i18n="galleryConsentDetail">公開すると、作品名が表示され、ほかの来場者がこのROMをプレイ待ちに追加できます。ファイル本体のダウンロードは公開せず、約1時間で削除します。</p><label class="gallery-title field-label" for="galleryTitle"><span data-i18n="galleryTitleLabel">公開する作品名</span><input id="galleryTitle" name="galleryTitle" type="text" maxlength="60" autocomplete="off" disabled></label></div><button class="primary" id="submitButton" type="submit" data-i18n="submit">ファイルを確認して登録</button></form>
+        <form id="upload">
+          <label class="field-label" for="rom" data-i18n="fileLabel">ゲームファイル（.nes）</label><input class="file-input" id="rom" name="rom" type="file" accept=".nes,application/octet-stream" aria-describedby="fileHint" required><label class="file-picker" for="rom"><span class="file-action" data-i18n="chooseFile">ファイルを選ぶ</span><span class="file-name" id="fileName">選択されていません</span></label><p id="fileHint" class="field-hint" data-i18n="fileHint">対応形式は下の「使えるファイル」をご覧ください。</p>
+          <label class="text-field field-label" for="authorName"><span data-i18n="authorNameLabel">お名前（任意・初期設定は非公開）</span><input id="authorName" name="authorName" type="text" maxlength="40" autocomplete="nickname"><span class="field-hint" data-i18n="authorNameHint">お名前は、別途公開を選ばない限り展示スタッフだけが確認できます。</span></label>
+          <label class="text-field field-label" for="visitorComment"><span data-i18n="commentLabel">作品へのひとこと（任意）</span><textarea id="visitorComment" name="visitorComment" maxlength="200"></textarea><span class="field-hint" data-i18n="commentHint">ゲームを非公開にしない場合、ギャラリーに表示されます。</span></label>
+          <label class="check"><input name="authorized" type="checkbox" required><span data-i18n="rights">このファイルを使用・送信する権利があります。</span></label>
+          <div class="gallery-consent"><p class="gallery-default" data-i18n="galleryDefault">このゲームはギャラリーに公開されます。ほかの来場者がプレイ待ちに追加できます。</p><label class="check"><input id="privateUpload" name="privateUpload" type="checkbox"><span data-i18n="privateUploadLabel">このゲームを非公開にする</span></label><p data-i18n="galleryConsentDetail">ファイル本体のダウンロードは公開せず、約1時間で削除します。</p><label class="gallery-title field-label" for="galleryTitle"><span data-i18n="galleryTitleLabel">公開する作品名</span><input id="galleryTitle" name="galleryTitle" type="text" maxlength="60" autocomplete="off" required></label><label class="name-public check"><input id="namePublic" name="namePublic" type="checkbox" disabled><span data-i18n="namePublicLabel">お名前もギャラリーに公開する（任意）</span></label></div>
+          <button class="primary" id="submitButton" type="submit" data-i18n="submit">ファイルを確認して登録</button>
+        </form>
         <p class="feedback" id="feedback" role="alert" hidden></p>
         <section class="job-panel" id="jobPanel" aria-live="polite" aria-atomic="true" hidden><div class="job-top"><h3 data-i18n="jobTitle">受付状況</h3><span class="state-badge" id="jobState"></span></div><p id="jobDescription"></p><p class="job-extra" id="jobExtra"></p><p data-i18n="bookmarkHint">このページのURLを保存すると、後から状況を確認できます。</p><button type="button" class="link-button" id="copyLink" data-i18n="copyLink">確認リンクをコピー</button></section>
       </div>
@@ -140,12 +155,20 @@ export const visitorPage = `<!doctype html>
     };
     Object.assign(copy.ja,{uploadTitle:"自分のROMをアップロード",uploadIntro:"自作、または使用を許可された .nes ファイルを送って、プレイ待ちに追加します。",galleryConsent:"このゲームを公開ギャラリーに載せてもよい（任意）",galleryConsentDetail:"公開すると作品名が表示され、ほかの来場者もこのROMをプレイ待ちに追加できます。ファイル本体は公開ダウンロードされず、約1時間で削除されます。",galleryTitleLabel:"公開する作品名",galleryHeading:"公開ゲームから選ぶ",galleryIntro:"公開に同意された作品を選んで、プレイ待ちに追加できます。",galleryRefresh:"一覧を更新",galleryLoading:"ギャラリーを読み込み中…",galleryEmpty:"公開中のゲームはまだありません。自分のROMをアップロードするとき、公開を選ぶとここに表示されます。",galleryUnavailable:"ギャラリーを読み込めませんでした。少し待ってから更新してください。",gallerySelect:"このゲームをプレイ待ちに追加",galleryExpiry:"公開期限",galleryQueued:"プレイ待ちに追加しました。",galleryTitleInvalid:"公開する場合は作品名を1〜60文字で入力してください。",afterBody:"ファイルを検査し、管理者が次に進めると実機へ自動送信します。実機での動作は検証中です。",privacyBody:"通常は非公開で約1時間後に削除します。ギャラリーへの掲載は任意です。",noticeBody:"受付と順番待ちを試せます。管理者の承認後に自動で実機へ送る機能は、まだ実機での確認が済んでいません。アップロードだけではゲームは切り替わりません。"});
     Object.assign(copy.en,{uploadTitle:"Upload your own ROM",uploadIntro:"Send a .nes file you created or have permission to use and add it to the play queue.",galleryConsent:"List this game in the public gallery (optional)",galleryConsentDetail:"Its title will be shown and other visitors can add this ROM to the play queue. The ROM itself is not publicly downloadable and is deleted after about one hour.",galleryTitleLabel:"Public game title",galleryHeading:"Choose a public game",galleryIntro:"Pick a game its uploader agreed to share and add it to the play queue.",galleryRefresh:"Refresh list",galleryLoading:"Loading gallery…",galleryEmpty:"No games are public yet. You can opt in when uploading your own ROM.",galleryUnavailable:"Could not load the gallery. Please try refreshing in a moment.",gallerySelect:"Add to play queue",galleryExpiry:"Listed until",galleryQueued:"Added to the play queue.",galleryTitleInvalid:"Enter a public title of 1–60 characters.",afterBody:"We check the file; after operator approval, the cartridge should receive it automatically. Physical verification is still pending.",privacyBody:"Files are private by default and deleted after about one hour. Gallery listing is optional.",noticeBody:"Submission and the queue are available. Automatic transfer after operator approval has not yet been verified on a physical cartridge. Uploading alone does not switch the console game."});
+    Object.assign(copy.ja,{authorNameLabel:"お名前（任意・初期設定は非公開）",authorNameHint:"公開を選ばない限り、展示スタッフだけが確認できます。",commentLabel:"作品へのひとこと（任意）",commentHint:"公開作品だけ、ギャラリーにも表示されます。",namePublicLabel:"お名前もギャラリーに公開する（任意）",uploadDetailsInvalid:"お名前は40文字以内、コメントは200文字以内で入力してください。",namePublicInvalid:"お名前の公開には、ギャラリーへの掲載とお名前の入力が必要です。",galleryBy:"投稿者："});
+    Object.assign(copy.en,{authorNameLabel:"Your name (optional; private by default)",authorNameHint:"Only exhibition staff can see it unless you choose to publish it.",commentLabel:"A note about your game (optional)",commentHint:"Shown in the gallery only when your game is public.",namePublicLabel:"Show my name in the gallery (optional)",uploadDetailsInvalid:"Use at most 40 characters for your name and 200 for the note.",namePublicInvalid:"Enter a name and opt in to the gallery before making your name public.",galleryBy:"By "});
+    Object.assign(copy.ja,{galleryDefault:"このゲームはギャラリーに公開されます。ほかの来場者がプレイ待ちに追加できます。",privateUploadLabel:"このゲームを非公開にする",galleryConsentDetail:"ファイル本体のダウンロードは公開せず、約1時間で削除します。",authorNameHint:"お名前は、別途公開を選ばない限り展示スタッフだけが確認できます。",commentHint:"ゲームを非公開にしない場合、ギャラリーに表示されます。",galleryIntro:"公開された作品を選んで、プレイ待ちに追加できます。",galleryEmpty:"公開中のゲームはまだありません。自分のROMをアップロードするとここに表示されます。",privacyBody:"ゲームは標準でギャラリーに公開されます。非公開も選べます。ファイル本体は約1時間後に削除します。"});
+    Object.assign(copy.en,{galleryDefault:"This game will appear in the public gallery, where other visitors can queue it.",privateUploadLabel:"Keep this game private",galleryConsentDetail:"The ROM file is not publicly downloadable and is deleted after about one hour.",commentHint:"Shown in the gallery unless you keep this game private.",galleryEmpty:"No games are public yet. Upload your own ROM to add one.",privacyBody:"Games are listed in the gallery by default; you can keep yours private. The ROM file is deleted after about one hour."});
     copy.ja.errors.gallery_title_invalid=copy.ja.galleryTitleInvalid;
     copy.en.errors.gallery_title_invalid=copy.en.galleryTitleInvalid;
+    copy.ja.errors.upload_details_invalid=copy.ja.uploadDetailsInvalid;
+    copy.en.errors.upload_details_invalid=copy.en.uploadDetailsInvalid;
+    copy.ja.errors.name_public_invalid=copy.ja.namePublicInvalid;
+    copy.en.errors.name_public_invalid=copy.en.namePublicInvalid;
     copy.ja.errors.gallery_not_found="このゲームの公開期限が切れました。一覧を更新してください。";
     copy.en.errors.gallery_not_found="This game is no longer listed. Please refresh the gallery.";
     const form=document.getElementById("upload"),button=document.getElementById("submitButton"),feedback=document.getElementById("feedback"),panel=document.getElementById("jobPanel"),stateEl=document.getElementById("jobState"),description=document.getElementById("jobDescription"),extra=document.getElementById("jobExtra");
-    const galleryGrid=document.getElementById("galleryGrid"),galleryConsent=document.getElementById("galleryConsent"),galleryTitle=document.getElementById("galleryTitle");
+    const galleryGrid=document.getElementById("galleryGrid"),privateUpload=document.getElementById("privateUpload"),galleryTitle=document.getElementById("galleryTitle"),namePublic=document.getElementById("namePublic"),authorName=document.getElementById("authorName");
     let lang="ja",timer=null,currentUrl="",lastJob=null,galleryItems=[];
     try { lang=localStorage.getItem("fc-game-drop-lang")==="en"?"en":"ja"; } catch (_) {}
     const requestedLang=new URL(location.href).searchParams.get("lang");
@@ -163,7 +186,7 @@ export const visitorPage = `<!doctype html>
       document.querySelectorAll("[data-i18n]").forEach(el=>{el.textContent=t(el.dataset.i18n)});
       document.querySelectorAll("[data-i18n-alt]").forEach(el=>{el.alt=t(el.dataset.i18nAlt)});
       document.querySelectorAll("[data-i18n-aria]").forEach(el=>{el.setAttribute("aria-label",t(el.dataset.i18nAria))});
-      const lines=next==="ja"?["ゲームを、","ファミコンへ。"]:["Your game,","on a Famicom."];
+      const lines=next==="ja"?["あなたのゲームを","ファミコンへ！"]:["Your game","on a Famicom!"];
       document.getElementById("page-title").replaceChildren(document.createTextNode(lines[0]),document.createElement("br"),document.createTextNode(lines[1]));
       if(!document.getElementById("rom").files.length)document.getElementById("fileName").textContent=t("noFile");
       document.getElementById("langJa").setAttribute("aria-pressed",String(next==="ja"));
@@ -179,7 +202,9 @@ export const visitorPage = `<!doctype html>
     }
     document.getElementById("langJa").addEventListener("click",()=>setLanguage("ja"));document.getElementById("langEn").addEventListener("click",()=>setLanguage("en"));setLanguage(lang);
     document.getElementById("rom").addEventListener("change",event=>{document.getElementById("fileName").textContent=event.target.files[0]?.name||t("noFile");});
-    galleryConsent.addEventListener("change",()=>{galleryTitle.disabled=!galleryConsent.checked;galleryTitle.required=galleryConsent.checked;if(!galleryConsent.checked)galleryTitle.value="";});
+    function updatePublicName(){namePublic.disabled=privateUpload.checked||!authorName.value.trim();if(namePublic.disabled)namePublic.checked=false;}
+    privateUpload.addEventListener("change",()=>{galleryTitle.disabled=privateUpload.checked;galleryTitle.required=!privateUpload.checked;updatePublicName();});
+    authorName.addEventListener("input",updatePublicName);
     function notice(key,error){feedback.dataset.key=key;delete feedback.dataset.errorCode;feedback.dataset.error=String(Boolean(error));showFeedback(t(key),error);}
     function renderGallery(items){
       galleryGrid.replaceChildren();
@@ -188,9 +213,11 @@ export const visitorPage = `<!doctype html>
         const card=document.createElement("article");card.className="gallery-item";
         const title=document.createElement("h3");title.textContent=item.title;
         const detail=document.createElement("p");const expiry=new Date(item.expires_at);detail.textContent="Mapper "+item.mapper+" · "+item.prg_kib+" KiB PRG · "+t("galleryExpiry")+" "+new Intl.DateTimeFormat(lang==="ja"?"ja-JP":"en-US",{hour:"2-digit",minute:"2-digit"}).format(expiry);
+        const byline=document.createElement("p");if(item.public_author_name)byline.textContent=t("galleryBy")+item.public_author_name;
+        const comment=document.createElement("p");comment.className="gallery-comment";if(item.visitor_comment)comment.textContent=item.visitor_comment;
         const select=document.createElement("button");select.type="button";select.textContent=t("gallerySelect");
         select.addEventListener("click",async()=>{select.disabled=true;try{const response=await fetch("/api/public/gallery/"+encodeURIComponent(item.id)+"/queue",{method:"POST",headers:{"X-RV-Queue":"true"}});const data=await response.json();if(!response.ok){const error=new Error(data.message||t("errorGeneric"));error.code=data.error;throw error;}const url=new URL(location.href);url.hash="job="+data.status_token;history.replaceState(null,"",url.pathname+url.search+url.hash);notice("galleryQueued",false);await poll(data.status_url);document.getElementById("jobPanel").scrollIntoView({behavior:"smooth",block:"nearest"});}catch(error){showError(error.code,error.message);if(error.code==="gallery_not_found")loadGallery();}finally{select.disabled=false;}});
-        card.append(title,detail,select);galleryGrid.append(card);
+        card.append(title,detail);if(item.public_author_name)card.append(byline);if(item.visitor_comment)card.append(comment);card.append(select);galleryGrid.append(card);
       }
     }
     async function loadGallery(){try{const response=await fetch("/api/public/gallery",{cache:"no-store"});if(!response.ok)throw new Error();const data=await response.json();galleryItems=Array.isArray(data.items)?data.items:[];renderGallery(galleryItems);}catch(_){galleryGrid.replaceChildren();const message=document.createElement("p");message.className="gallery-empty";message.textContent=t("galleryUnavailable");galleryGrid.append(message);}}
