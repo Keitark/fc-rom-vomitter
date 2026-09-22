@@ -37,10 +37,13 @@ type JobRow = {
   updated_at: number;
   expires_at: number;
   released_at: number | null;
+  author_name: string | null;
+  visitor_comment: string | null;
 };
 
 type GalleryRow = Pick<JobRow, "object_key" | "sha256" | "crc32" | "bytes" | "mapper" | "prg_kib" | "chr_kib" | "mirroring" | "expires_at"> & {
   id: string; title: string; created_at: number;
+  public_author_name: string | null; visitor_comment: string | null;
 };
 
 const encoder = new TextEncoder();
@@ -75,7 +78,9 @@ async function saltedHash(value: string, salt: string): Promise<string> {
   return sha256Hex(encoder.encode(`${salt}\n${value}`));
 }
 
-async function readUpload(request: Request): Promise<{ bytes: Uint8Array; authorized: boolean; galleryTitle: string | null }> {
+type Upload = { bytes: Uint8Array; authorized: boolean; galleryTitle: string | null; authorName: string; visitorComment: string; namePublic: boolean };
+
+async function readUpload(request: Request): Promise<Upload> {
   const contentType = request.headers.get("Content-Type") ?? "";
   const declaredLength = Number(request.headers.get("Content-Length") ?? "0");
   if (declaredLength > MAX_INES_SIZE + 4096) throw new InesError("Upload is too large.", "too_large");
@@ -85,14 +90,24 @@ async function readUpload(request: Request): Promise<{ bytes: Uint8Array; author
     const file = form.get("rom");
     if (!(file instanceof File)) throw new InesError("Select a .nes file.", "missing_file");
     if (file.size > MAX_INES_SIZE) throw new InesError("Upload is too large.", "too_large");
-    const galleryTitle = form.get("galleryConsent") === "on" ? form.get("galleryTitle") : null;
+    const galleryTitle = form.get("privateUpload") === "on" ? null : (form.get("galleryTitle") ?? "");
     if (galleryTitle !== null && typeof galleryTitle !== "string") throw new InesError("Enter a public gallery title.", "gallery_title_invalid");
-    return { bytes: new Uint8Array(await file.arrayBuffer()), authorized: form.get("authorized") === "on", galleryTitle };
+    const authorName = form.get("authorName") ?? "";
+    const visitorComment = form.get("visitorComment") ?? "";
+    if (typeof authorName !== "string" || typeof visitorComment !== "string") throw new InesError("Invalid upload details.", "upload_details_invalid");
+    return { bytes: new Uint8Array(await file.arrayBuffer()), authorized: form.get("authorized") === "on", galleryTitle,
+      authorName, visitorComment, namePublic: form.get("namePublic") === "on" };
   }
 
   const bytes = new Uint8Array(await request.arrayBuffer());
   if (bytes.byteLength > MAX_INES_SIZE) throw new InesError("Upload is too large.", "too_large");
-  return { bytes, authorized: request.headers.get("X-RV-Authorized") === "true", galleryTitle: null };
+  return { bytes, authorized: request.headers.get("X-RV-Authorized") === "true", galleryTitle: null,
+    authorName: "", visitorComment: "", namePublic: false };
+}
+
+function cleanOptionalText(raw: string, maximum: number): string | null {
+  const value = raw.trim().replace(/\s+/g, " ");
+  return value.length <= maximum && !/[\x00-\x1f\x7f]/.test(value) ? value : null;
 }
 
 function cleanGalleryTitle(raw: string): string | null {
@@ -107,7 +122,7 @@ async function expireObjects(env: Env, now: number): Promise<void> {
   for (const job of expired.results) {
     await env.ROMS.delete(job.object_key);
     await env.DB.prepare(
-      "UPDATE jobs SET state = CASE WHEN state IN ('queued','claimed','downloaded','deferred') THEN 'expired' ELSE state END, object_deleted = 1, updated_at = ? WHERE id = ?",
+      "UPDATE jobs SET state = CASE WHEN state IN ('queued','claimed','downloaded','deferred') THEN 'expired' ELSE state END, object_deleted = 1, author_name = NULL, visitor_comment = NULL, updated_at = ? WHERE id = ?",
     ).bind(now, job.id).run();
   }
   const expiredGallery = await env.DB.prepare(
@@ -115,7 +130,7 @@ async function expireObjects(env: Env, now: number): Promise<void> {
   ).bind(now).all<{ id: string; object_key: string }>();
   for (const item of expiredGallery.results) {
     await env.ROMS.delete(item.object_key);
-    await env.DB.prepare("UPDATE gallery_items SET object_deleted = 1 WHERE id = ?").bind(item.id).run();
+    await env.DB.prepare("UPDATE gallery_items SET object_deleted = 1, public_author_name = NULL, visitor_comment = NULL WHERE id = ?").bind(item.id).run();
   }
   await env.DB.prepare(
     "UPDATE jobs SET state = 'queued', lease_owner = NULL, lease_expires_at = NULL, updated_at = ? WHERE state IN ('claimed','downloaded') AND lease_expires_at < ? AND expires_at > ?",
@@ -129,13 +144,13 @@ async function removeGalleryForSourceJob(env: Env, jobId: string, now: number): 
   for (const item of items.results) {
     await env.ROMS.delete(item.object_key);
     await env.DB.prepare(
-      "UPDATE gallery_items SET object_deleted = 1, expires_at = ? WHERE id = ?",
+      "UPDATE gallery_items SET object_deleted = 1, public_author_name = NULL, visitor_comment = NULL, expires_at = ? WHERE id = ?",
     ).bind(now, item.id).run();
   }
 }
 
 async function uploadJob(request: Request, env: Env, now: number): Promise<Response> {
-  let upload: { bytes: Uint8Array; authorized: boolean; galleryTitle: string | null };
+  let upload: Upload;
   try {
     upload = await readUpload(request);
   } catch (error) {
@@ -145,6 +160,10 @@ async function uploadJob(request: Request, env: Env, now: number): Promise<Respo
   if (!upload.authorized) return jsonError(400, "authorization_required", "Confirm that you are authorized to use this ROM.");
   const galleryTitle = upload.galleryTitle === null ? null : cleanGalleryTitle(upload.galleryTitle);
   if (upload.galleryTitle !== null && !galleryTitle) return jsonError(422, "gallery_title_invalid", "Enter a public title of 1–60 characters.");
+  const authorName = cleanOptionalText(upload.authorName, 40);
+  const visitorComment = cleanOptionalText(upload.visitorComment, 200);
+  if (authorName === null || visitorComment === null) return jsonError(422, "upload_details_invalid", "Name must be at most 40 characters and comment at most 200 characters.");
+  if (upload.namePublic && (!galleryTitle || !authorName)) return jsonError(422, "name_public_invalid", "A public name requires gallery consent and a name.");
 
   let metadata;
   try {
@@ -198,21 +217,22 @@ async function uploadJob(request: Request, env: Env, now: number): Promise<Respo
       `INSERT INTO jobs (
         id, status_token, state, object_key, sha256, crc32, bytes,
         mapper, prg_kib, chr_kib, mirroring, session_hash, ip_hash,
-        created_at, updated_at, expires_at
-      ) VALUES (?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        created_at, updated_at, expires_at, author_name, visitor_comment
+      ) VALUES (?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).bind(
       id, statusToken, objectKey, sha256, crc32, upload.bytes.byteLength,
       metadata.mapper, metadata.prgKib, metadata.chrKib, metadata.mirroring,
-      sessionHash, ipHash, now, now, expiresAt,
+      sessionHash, ipHash, now, now, expiresAt, authorName || null, visitorComment || null,
     );
     const statements = [insertJob];
     if (galleryId && galleryKey && galleryTitle) statements.push(env.DB.prepare(
       `INSERT INTO gallery_items (
         id, source_job_id, title, object_key, sha256, crc32, bytes,
-        mapper, prg_kib, chr_kib, mirroring, created_at, expires_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        mapper, prg_kib, chr_kib, mirroring, created_at, expires_at, public_author_name, visitor_comment
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).bind(galleryId, id, galleryTitle, galleryKey, sha256, crc32, upload.bytes.byteLength,
-      metadata.mapper, metadata.prgKib, metadata.chrKib, metadata.mirroring, now, expiresAt));
+      metadata.mapper, metadata.prgKib, metadata.chrKib, metadata.mirroring, now, expiresAt,
+      upload.namePublic ? authorName : null, visitorComment || null));
     await env.DB.batch(statements);
   } catch (error) {
     await env.ROMS.delete(objectKey);
@@ -236,8 +256,8 @@ async function uploadJob(request: Request, env: Env, now: number): Promise<Respo
 
 async function listGallery(env: Env, now: number): Promise<Response> {
   const items = await env.DB.prepare(
-    "SELECT id, title, mapper, prg_kib, chr_kib, created_at, expires_at FROM gallery_items WHERE expires_at > ? AND object_deleted = 0 ORDER BY created_at DESC LIMIT 30",
-  ).bind(now).all<Pick<GalleryRow, "id" | "title" | "mapper" | "prg_kib" | "chr_kib" | "created_at" | "expires_at">>();
+    "SELECT id, title, mapper, prg_kib, chr_kib, created_at, expires_at, public_author_name, visitor_comment FROM gallery_items WHERE expires_at > ? AND object_deleted = 0 ORDER BY created_at DESC LIMIT 30",
+  ).bind(now).all<Pick<GalleryRow, "id" | "title" | "mapper" | "prg_kib" | "chr_kib" | "created_at" | "expires_at" | "public_author_name" | "visitor_comment">>();
   return Response.json({ items: items.results.map((item) => ({ ...item,
     created_at: new Date(item.created_at * 1000).toISOString(),
     expires_at: new Date(item.expires_at * 1000).toISOString(),
@@ -468,9 +488,27 @@ async function operatorRoute(request: Request, pathname: string, env: Env, now: 
   }
   if (request.method === "GET" && pathname === "/api/operator/queue") {
     const jobs = await env.DB.prepare(
-      "SELECT id, state, bytes, mapper, prg_kib, chr_kib, created_at, expires_at, released_at FROM jobs WHERE expires_at > ? AND state IN ('queued','claimed','downloaded','deferred') ORDER BY created_at, id LIMIT 50",
-    ).bind(now).all<Pick<JobRow, "id" | "state" | "bytes" | "mapper" | "prg_kib" | "chr_kib" | "created_at" | "expires_at" | "released_at">>();
+      "SELECT id, state, bytes, mapper, prg_kib, chr_kib, created_at, expires_at, released_at, author_name, visitor_comment FROM jobs WHERE expires_at > ? AND state IN ('queued','claimed','downloaded','deferred') ORDER BY created_at, id LIMIT 50",
+    ).bind(now).all<Pick<JobRow, "id" | "state" | "bytes" | "mapper" | "prg_kib" | "chr_kib" | "created_at" | "expires_at" | "released_at" | "author_name" | "visitor_comment">>();
     return Response.json({ jobs: jobs.results });
+  }
+  if (request.method === "GET" && pathname === "/api/operator/gallery") {
+    const items = await env.DB.prepare(
+      "SELECT id, title, source_job_id, created_at, expires_at FROM gallery_items WHERE expires_at > ? AND object_deleted = 0 ORDER BY created_at DESC LIMIT 50",
+    ).bind(now).all<{ id: string; title: string; source_job_id: string; created_at: number; expires_at: number }>();
+    return Response.json({ items: items.results });
+  }
+  const withdrawMatch = pathname.match(/^\/api\/operator\/gallery\/([0-9a-f-]{36})\/withdraw$/);
+  if (request.method === "POST" && withdrawMatch) {
+    const item = await env.DB.prepare(
+      "SELECT id, object_key FROM gallery_items WHERE id = ? AND expires_at > ? AND object_deleted = 0",
+    ).bind(withdrawMatch[1], now).first<{ id: string; object_key: string }>();
+    if (!item) return jsonError(404, "gallery_not_found", "Gallery item not found.");
+    await env.ROMS.delete(item.object_key);
+    await env.DB.prepare(
+      "UPDATE gallery_items SET object_deleted = 1, public_author_name = NULL, visitor_comment = NULL, expires_at = ? WHERE id = ?",
+    ).bind(now, item.id).run();
+    return Response.json({ withdrawn: true, gallery_id: item.id });
   }
   if (request.method === "POST" && pathname === "/api/operator/advance") {
     const advanced = await env.DB.prepare(
@@ -501,7 +539,7 @@ async function operatorRoute(request: Request, pathname: string, env: Env, now: 
     ).bind(now, job.id).run();
     if ((cancelled.meta.changes ?? 0) !== 1) return jsonError(409, "job_not_waiting", "The job is no longer waiting.");
     await env.ROMS.delete(job.object_key);
-    await env.DB.prepare("UPDATE jobs SET object_deleted=1 WHERE id=?").bind(job.id).run();
+    await env.DB.prepare("UPDATE jobs SET object_deleted=1, author_name=NULL, visitor_comment=NULL WHERE id=?").bind(job.id).run();
     await removeGalleryForSourceJob(env, job.id, now);
     return Response.json({ cancelled: true, job_id: job.id });
   }
@@ -510,7 +548,7 @@ async function operatorRoute(request: Request, pathname: string, env: Env, now: 
     const jobs = await env.DB.prepare("SELECT id, object_key FROM jobs WHERE state='queued' ORDER BY created_at LIMIT ?").bind(limit).all<{ id: string; object_key: string }>();
     for (const job of jobs.results) {
       await env.ROMS.delete(job.object_key);
-      await env.DB.prepare("UPDATE jobs SET state='cancelled', object_deleted=1, updated_at=? WHERE id=? AND state='queued'").bind(now, job.id).run();
+      await env.DB.prepare("UPDATE jobs SET state='cancelled', object_deleted=1, author_name=NULL, visitor_comment=NULL, updated_at=? WHERE id=? AND state='queued'").bind(now, job.id).run();
       await removeGalleryForSourceJob(env, job.id, now);
     }
     return Response.json({ cancelled: jobs.results.length });

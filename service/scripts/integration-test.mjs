@@ -57,12 +57,15 @@ async function upload(bytes, session = randomBytes(18).toString("base64url"), ip
   });
 }
 
-async function uploadWithGallery(bytes, { title, consent = true, ip = "192.0.2.40" } = {}) {
+async function uploadWithGallery(bytes, { title, privateUpload = false, authorName, visitorComment, namePublic = false, ip = "192.0.2.40" } = {}) {
   const form = new FormData();
   form.set("rom", new Blob([bytes], { type: "application/octet-stream" }), "gallery.nes");
   form.set("authorized", "on");
-  if (consent) form.set("galleryConsent", "on");
+  if (privateUpload) form.set("privateUpload", "on");
   if (title !== undefined) form.set("galleryTitle", title);
+  if (authorName !== undefined) form.set("authorName", authorName);
+  if (visitorComment !== undefined) form.set("visitorComment", visitorComment);
+  if (namePublic) form.set("namePublic", "on");
   return fetch(`${base}/api/public/jobs`, { method: "POST", headers: { "CF-Connecting-IP": ip }, body: form });
 }
 
@@ -267,23 +270,34 @@ try {
   const invalidGalleryTitle = await uploadWithGallery(makeRom({ fill: 0x61 }), { title: "   ", ip: "192.0.2.41" });
   assert.equal(invalidGalleryTitle.status, 422);
   assert.equal((await invalidGalleryTitle.json()).error, "gallery_title_invalid");
-  const privateUpload = await uploadWithGallery(makeRom({ fill: 0x62 }), { title: "Ignored", consent: false, ip: "192.0.2.42" });
-  assert.equal(privateUpload.status, 202);
-  assert.equal((await privateUpload.json()).gallery_published, false);
+  const invalidName = await uploadWithGallery(makeRom({ fill: 0x66 }), { title: "Tiny Test", authorName: "X".repeat(41), ip: "192.0.2.46" });
+  assert.equal(invalidName.status, 422);
+  assert.equal((await invalidName.json()).error, "upload_details_invalid");
+  const invalidPublicName = await uploadWithGallery(makeRom({ fill: 0x67 }), { title: "Tiny Test", authorName: "", namePublic: true, ip: "192.0.2.47" });
+  assert.equal(invalidPublicName.status, 422);
+  assert.equal((await invalidPublicName.json()).error, "name_public_invalid");
+  const privateResponse = await uploadWithGallery(makeRom({ fill: 0x62 }), { title: "Ignored", privateUpload: true, authorName: "Private Visitor", visitorComment: "Private note", ip: "192.0.2.42" });
+  assert.equal(privateResponse.status, 202);
+  assert.equal((await privateResponse.json()).gallery_published, false);
   assert.deepEqual((await (await fetch(`${base}/api/public/gallery`)).json()).items, []);
   const privateWaiting = await (await fetch(`${base}/api/operator/queue`, { headers: operatorHeaders })).json();
   assert.equal(privateWaiting.jobs.length, 1);
+  assert.equal(privateWaiting.jobs[0].author_name, "Private Visitor");
+  assert.equal(privateWaiting.jobs[0].visitor_comment, "Private note");
   assert.equal((await fetch(`${base}/api/operator/jobs/${privateWaiting.jobs[0].id}/cancel`, {
     method: "POST", headers: operatorHeaders,
   })).status, 200);
 
-  const publicUpload = await uploadWithGallery(makeRom({ fill: 0x63 }), { title: "  Tiny   Test  ", ip: "192.0.2.43" });
+  const publicUpload = await uploadWithGallery(makeRom({ fill: 0x63 }), { title: "  Tiny   Test  ", authorName: "Private Maker", visitorComment: "A little homebrew!", ip: "192.0.2.43" });
   assert.equal(publicUpload.status, 202);
   const publicJob = await publicUpload.json();
   assert.equal(publicJob.gallery_published, true);
   const gallery = await (await fetch(`${base}/api/public/gallery`)).json();
   assert.equal(gallery.items.length, 1);
   assert.equal(gallery.items[0].title, "Tiny Test");
+  assert.equal(gallery.items[0].visitor_comment, "A little homebrew!");
+  assert.equal(gallery.items[0].public_author_name, null);
+  assert.equal(Object.hasOwn(gallery.items[0], "author_name"), false);
   assert.equal(Object.hasOwn(gallery.items[0], "object_key"), false);
   assert.equal(Object.hasOwn(gallery.items[0], "status_token"), false);
   const crossSiteStyleSelection = await fetch(`${base}/api/public/gallery/${gallery.items[0].id}/queue`, {
@@ -302,6 +316,7 @@ try {
   assert.equal(repeatedSelection.status, 429);
   const galleryQueue = await (await fetch(`${base}/api/operator/queue`, { headers: operatorHeaders })).json();
   assert.equal(galleryQueue.jobs.length, 2);
+  assert.equal(galleryQueue.jobs.find(job => job.id === publicJob.job_id).author_name, "Private Maker");
   assert.equal((await fetch(`${base}/api/operator/jobs/${publicJob.job_id}/cancel`, {
     method: "POST", headers: operatorHeaders,
   })).status, 200);
@@ -310,8 +325,33 @@ try {
     method: "POST", headers: { "CF-Connecting-IP": "192.0.2.45", "X-RV-Queue": "true" },
   })).status, 404);
 
+  const namedUpload = await uploadWithGallery(makeRom({ fill: 0x68 }), {
+    title: "Named demo", authorName: "Mika", visitorComment: "こんにちは <script>alert(1)</script>",
+    namePublic: true, ip: "192.0.2.48",
+  });
+  assert.equal(namedUpload.status, 202);
+  const namedGallery = await (await fetch(`${base}/api/public/gallery`)).json();
+  assert.equal(namedGallery.items.length, 1);
+  assert.equal(namedGallery.items[0].public_author_name, "Mika");
+  assert.equal(namedGallery.items[0].visitor_comment, "こんにちは <script>alert(1)</script>");
+  assert.equal(Object.hasOwn(namedGallery.items[0], "author_name"), false);
+  assert.equal((await fetch(`${base}/api/operator/gallery`)).status, 401);
+  const operatorGallery = await (await fetch(`${base}/api/operator/gallery`, { headers: operatorHeaders })).json();
+  assert.equal(operatorGallery.items.length, 1);
+  assert.equal(operatorGallery.items[0].title, "Named demo");
+  const namedJob = await namedUpload.json();
+  const withdrawal = await fetch(`${base}/api/operator/gallery/${namedGallery.items[0].id}/withdraw`, {
+    method: "POST", headers: operatorHeaders,
+  });
+  assert.equal(withdrawal.status, 200);
+  assert.deepEqual((await (await fetch(`${base}/api/public/gallery`)).json()).items, []);
+  assert.equal((await (await fetch(namedJob.status_url)).json()).state, "queued");
+  assert.equal((await fetch(`${base}/api/operator/gallery/${namedGallery.items[0].id}/withdraw`, {
+    method: "POST", headers: operatorHeaders,
+  })).status, 404);
+
   console.log("integration PASS: upload -> lease -> authenticated download -> installed status");
-  console.log("gallery PASS: private default, opt-in title, metadata-only list, selection queue, cooldown, cancellation withdrawal");
+  console.log("gallery PASS: default-public multipart, explicit private, name opt-in, selection queue, and operator withdrawal");
   console.log("negative PASS: invalid, unauthorized, oversize, mapper, duplicate, cooldown, queue, replay, and pause gates");
   console.log("lifecycle PASS: lease recovery, unsafe deferral, later install, idempotency conflict, and expiry cleanup");
 } catch (error) {
