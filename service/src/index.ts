@@ -1,6 +1,7 @@
 import { authenticateDevice, authenticateOperator } from "./auth";
 import { crc32Hex, InesError, MAX_INES_SIZE, parseSupportedInes, sha256Hex } from "./ines";
 import { visitorPage } from "./page";
+import { operatorPage } from "./operator_page";
 
 export interface Env {
   DB: D1Database;
@@ -35,6 +36,7 @@ type JobRow = {
   created_at: number;
   updated_at: number;
   expires_at: number;
+  released_at: number | null;
 };
 
 const encoder = new TextEncoder();
@@ -185,8 +187,8 @@ async function uploadJob(request: Request, env: Env, now: number): Promise<Respo
 async function publicStatus(token: string, env: Env, now: number): Promise<Response> {
   if (!/^[A-Za-z0-9_-]{24,96}$/.test(token)) return jsonError(404, "not_found", "Job not found.");
   const job = await env.DB.prepare(
-    "SELECT state, result_code, result_message, created_at, updated_at, expires_at FROM jobs WHERE status_token = ?",
-  ).bind(token).first<Pick<JobRow, "state" | "result_code" | "result_message" | "created_at" | "updated_at" | "expires_at">>();
+    "SELECT state, result_code, result_message, created_at, updated_at, expires_at, released_at FROM jobs WHERE status_token = ?",
+  ).bind(token).first<Pick<JobRow, "state" | "result_code" | "result_message" | "created_at" | "updated_at" | "expires_at" | "released_at">>();
   if (!job) return jsonError(404, "not_found", "Job not found.");
   const position = job.state === "queued"
     ? await env.DB.prepare("SELECT COUNT(*) AS count FROM jobs WHERE state = 'queued' AND created_at < ? AND expires_at > ?")
@@ -200,12 +202,14 @@ async function publicStatus(token: string, env: Env, now: number): Promise<Respo
     created_at: new Date(job.created_at * 1000).toISOString(),
     updated_at: new Date(job.updated_at * 1000).toISOString(),
     expires_at: new Date(job.expires_at * 1000).toISOString(),
+    dispatch_released: job.released_at !== null,
   });
 }
 
 function validCapabilities(value: unknown): value is {
   firmware: string; protocol: number; mappers: number[]; max_rom_bytes: number;
   active_sha256?: string; console_power: boolean; console_exposed: boolean;
+  can_interrupt_console?: boolean;
 } {
   if (!value || typeof value !== "object") return false;
   const item = value as Record<string, unknown>;
@@ -213,6 +217,7 @@ function validCapabilities(value: unknown): value is {
     && Array.isArray(item.mappers) && item.mappers.every((mapper) => Number.isInteger(mapper))
     && Number.isInteger(item.max_rom_bytes) && Number(item.max_rom_bytes) > 0
     && typeof item.console_power === "boolean" && typeof item.console_exposed === "boolean"
+    && (item.can_interrupt_console === undefined || typeof item.can_interrupt_console === "boolean")
     && (item.active_sha256 === undefined || /^[0-9a-f]{64}$/.test(String(item.active_sha256)));
 }
 
@@ -238,10 +243,17 @@ async function nextJob(request: Request, body: Uint8Array, env: Env, deviceId: s
   const paused = await env.DB.prepare("SELECT value FROM service_settings WHERE key = 'paused'").first<{ value: string }>();
   if (paused?.value === "1") return new Response(null, { status: 204 });
 
+  if ((capabilities.console_power || capabilities.console_exposed) && !capabilities.can_interrupt_console) {
+    return new Response(null, { status: 204 });
+  }
+  await env.DB.prepare(
+    "UPDATE jobs SET state='queued', lease_owner=NULL, lease_expires_at=NULL, result_idempotency_key=NULL, updated_at=? WHERE state='deferred' AND lease_owner=? AND expires_at>?",
+  ).bind(now, deviceId, now).run();
+
   const placeholders = capabilities.mappers.map(() => "?").join(",");
   if (!placeholders) return new Response(null, { status: 204 });
   const job = await env.DB.prepare(
-    `SELECT * FROM jobs WHERE state = 'queued' AND expires_at > ? AND bytes <= ? AND mapper IN (${placeholders}) ORDER BY created_at LIMIT 1`,
+    `SELECT * FROM jobs WHERE state = 'queued' AND released_at IS NOT NULL AND expires_at > ? AND bytes <= ? AND mapper IN (${placeholders}) ORDER BY created_at LIMIT 1`,
   ).bind(now, capabilities.max_rom_bytes, ...capabilities.mappers).first<JobRow>();
   if (!job) return new Response(null, { status: 204 });
 
@@ -269,14 +281,14 @@ async function nextJob(request: Request, body: Uint8Array, env: Env, deviceId: s
     ines: { mapper: job.mapper, prg_kib: job.prg_kib, chr_kib: job.chr_kib, mirroring: job.mirroring },
     lease_expires_at: new Date(leaseExpiresAt * 1000).toISOString(),
     expires_at: new Date(job.expires_at * 1000).toISOString(),
-    install_policy: capabilities.console_power || capabilities.console_exposed ? "defer_until_safe" : "safe_now",
+    install_policy: capabilities.console_power || capabilities.console_exposed ? "manual_reset_after_install" : "safe_now",
   });
 }
 
 async function downloadRom(jobId: string, env: Env, deviceId: string, now: number): Promise<Response> {
   const job = await env.DB.prepare(
-    "SELECT * FROM jobs WHERE id=? AND lease_owner=? AND state IN ('claimed','downloaded','deferred') AND expires_at>?",
-  ).bind(jobId, deviceId, now).first<JobRow>();
+    "SELECT * FROM jobs WHERE id=? AND lease_owner=? AND state IN ('claimed','downloaded') AND lease_expires_at>=? AND expires_at>?",
+  ).bind(jobId, deviceId, now, now).first<JobRow>();
   if (!job) return jsonError(404, "job_unavailable", "The job is not leased to this device.");
   const object = await env.ROMS.get(job.object_key);
   if (!object) return jsonError(410, "object_missing", "The ROM payload is no longer available.");
@@ -314,6 +326,15 @@ async function reportResult(requestBody: Uint8Array, jobId: string, env: Env, de
   if (job.state === "deferred" && result === "deferred") {
     return Response.json({ ok: true, idempotent: true, state: "deferred" });
   }
+  if (result === "deferred") {
+    if (job.state !== "claimed" && job.state !== "downloaded") {
+      return jsonError(409, "job_not_active", "Only a leased job can be deferred.");
+    }
+    await env.DB.prepare(
+      "UPDATE jobs SET state='deferred', result_code=?, result_message=?, result_idempotency_key=?, updated_at=? WHERE id=? AND lease_owner=?",
+    ).bind(code || null, message || null, idempotencyKey, now, jobId, deviceId).run();
+    return Response.json({ ok: true, idempotent: false, state: "deferred" });
+  }
 
   await env.DB.prepare(
     "UPDATE jobs SET state=?, result_code=?, result_message=?, result_idempotency_key=?, updated_at=? WHERE id=? AND lease_owner=?",
@@ -329,11 +350,43 @@ async function operatorRoute(request: Request, pathname: string, env: Env, now: 
     const device = await env.DB.prepare("SELECT firmware, protocol, mappers_json, max_rom_bytes, console_power, console_exposed, last_seen_at FROM devices ORDER BY last_seen_at DESC LIMIT 1").first();
     return Response.json({ paused: settings?.value === "1", jobs: states.results, device });
   }
+  if (request.method === "GET" && pathname === "/api/operator/queue") {
+    const jobs = await env.DB.prepare(
+      "SELECT id, state, bytes, mapper, prg_kib, chr_kib, created_at, expires_at, released_at FROM jobs WHERE expires_at > ? AND state IN ('queued','claimed','downloaded','deferred') ORDER BY created_at, id LIMIT 50",
+    ).bind(now).all<Pick<JobRow, "id" | "state" | "bytes" | "mapper" | "prg_kib" | "chr_kib" | "created_at" | "expires_at" | "released_at">>();
+    return Response.json({ jobs: jobs.results });
+  }
+  if (request.method === "POST" && pathname === "/api/operator/advance") {
+    const advanced = await env.DB.prepare(
+      `UPDATE jobs SET released_at=?, updated_at=?
+       WHERE id=(SELECT id FROM jobs WHERE state='queued' AND released_at IS NULL AND expires_at>? ORDER BY created_at, id LIMIT 1)
+         AND released_at IS NULL
+         AND NOT EXISTS (SELECT 1 FROM jobs WHERE released_at IS NOT NULL AND state IN ('queued','claimed','downloaded','deferred') AND expires_at>?)`,
+    ).bind(now, now, now, now).run();
+    if ((advanced.meta.changes ?? 0) !== 1) return jsonError(409, "nothing_to_advance", "No waiting job can be sent yet.");
+    const job = await env.DB.prepare(
+      "SELECT id, state FROM jobs WHERE released_at=? AND state='queued' ORDER BY updated_at DESC LIMIT 1",
+    ).bind(now).first<Pick<JobRow, "id" | "state">>();
+    return Response.json({ advanced: true, job_id: job?.id ?? null });
+  }
   if (request.method === "POST" && pathname === "/api/operator/pause") {
     const value: { paused?: boolean } = await request.json<{ paused?: boolean }>().catch(() => ({}));
     if (typeof value.paused !== "boolean") return jsonError(422, "pause_invalid", "Provide a boolean paused value.");
     await env.DB.prepare("UPDATE service_settings SET value=?, updated_at=? WHERE key='paused'").bind(value.paused ? "1" : "0", now).run();
     return Response.json({ paused: value.paused });
+  }
+  const cancelMatch = pathname.match(/^\/api\/operator\/jobs\/([0-9a-f-]{36})\/cancel$/);
+  if (request.method === "POST" && cancelMatch) {
+    const job = await env.DB.prepare("SELECT id, object_key FROM jobs WHERE id=? AND state='queued' AND expires_at>?")
+      .bind(cancelMatch[1], now).first<Pick<JobRow, "id" | "object_key">>();
+    if (!job) return jsonError(409, "job_not_waiting", "Only a waiting job can be cancelled.");
+    const cancelled = await env.DB.prepare(
+      "UPDATE jobs SET state='cancelled', updated_at=? WHERE id=? AND state='queued'",
+    ).bind(now, job.id).run();
+    if ((cancelled.meta.changes ?? 0) !== 1) return jsonError(409, "job_not_waiting", "The job is no longer waiting.");
+    await env.ROMS.delete(job.object_key);
+    await env.DB.prepare("UPDATE jobs SET object_deleted=1 WHERE id=?").bind(job.id).run();
+    return Response.json({ cancelled: true, job_id: job.id });
   }
   if (request.method === "POST" && (pathname === "/api/operator/clear-next" || pathname === "/api/operator/clear-all")) {
     const limit = pathname.endsWith("clear-next") ? 1 : 20;
@@ -355,6 +408,9 @@ async function route(request: Request, env: Env): Promise<Response> {
 
   if (request.method === "GET" && pathname === "/") {
     return new Response(visitorPage, { headers: { "Content-Type": "text/html; charset=utf-8" } });
+  }
+  if (request.method === "GET" && pathname === "/operator") {
+    return new Response(operatorPage, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
   }
   if (request.method === "GET" && pathname === "/api/health") {
     return Response.json({ ok: true, service: "fc-rom-vomitter-cloud", protocol: 2, time: new Date(now * 1000).toISOString() });

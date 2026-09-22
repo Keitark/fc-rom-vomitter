@@ -38,10 +38,17 @@ config NESCART_CLOUD_PULL_ENABLE
     select MBEDTLS_CERTIFICATE_BUNDLE
     help
         Keep the recovery SoftAP active and also join a Wi-Fi network to poll
-        a URL that returns one raw iNES file. Credentials remain in the local
-        sdkconfig and must not be committed.
+        a fixed ROM URL or the operator-controlled exhibition queue.
+        Credentials remain in the local sdkconfig and must not be committed.
 
 if NESCART_CLOUD_PULL_ENABLE
+
+config NESCART_CLOUD_QUEUE_ENABLE
+    bool "Use operator-controlled exhibition queue instead of a fixed ROM URL"
+    default n
+    help
+        Sign protocol-v2 requests to the Cloudflare service. No visitor upload
+        reaches the cartridge until the operator releases one queue entry.
 
 config NESCART_CLOUD_STA_SSID
     string "Cloud Wi-Fi SSID"
@@ -51,14 +58,28 @@ config NESCART_CLOUD_STA_PASSWORD
 
 config NESCART_CLOUD_ROM_URL
     string "HTTPS URL returning the raw iNES file"
+    depends on !NESCART_CLOUD_QUEUE_ENABLE
 
 config NESCART_CLOUD_BEARER_TOKEN
     string "Optional bearer token"
     default ""
+    depends on !NESCART_CLOUD_QUEUE_ENABLE
+
+config NESCART_CLOUD_SERVICE_ORIGIN
+    string "Exhibition service HTTPS origin (no path or trailing slash)"
+    depends on NESCART_CLOUD_QUEUE_ENABLE
+
+config NESCART_CLOUD_DEVICE_ID
+    string "Exhibition device identifier"
+    depends on NESCART_CLOUD_QUEUE_ENABLE
+
+config NESCART_CLOUD_DEVICE_HMAC_SECRET
+    string "Exhibition device HMAC secret (never commit a real value)"
+    depends on NESCART_CLOUD_QUEUE_ENABLE
 
 config NESCART_CLOUD_POLL_SECONDS
     int "Cloud polling interval in seconds"
-    range 15 86400
+    range 2 86400
     default 60
 
 config NESCART_CLOUD_HTTP_TIMEOUT_MS
@@ -67,8 +88,13 @@ config NESCART_CLOUD_HTTP_TIMEOUT_MS
     default 10000
 
 config NESCART_CLOUD_ALLOW_CONSOLE_RELOAD
-    bool "Allow cloud update to interrupt a powered console"
+    bool "Allow operator-dispatched update to interrupt a powered console"
     default n
+    help
+        On the FC board this isolates the cartridge bus, updates and verifies
+        SRAM, then requires the operator to press Famicom RESET. Enable only
+        after real-board bus and power tests. A fixed-URL pull will also use
+        this permission, so prefer the queue mode for exhibition use.
 
 config NESCART_CLOUD_ALLOW_INSECURE_HTTP
     bool "Allow plain HTTP for isolated development only"

@@ -14,10 +14,23 @@ KiCad board render. It translates upload errors and job states while keeping
 the existing `/api/public/jobs` protocol. A status URL can be saved and
 reopened; the token stays in the URL fragment.
 
-The page explicitly says that automatic cartridge pickup from this queue is
-still in development. A successful upload currently proves validation and
-queue admission, not that the game has changed on a physical Famicom. The
-board render remains CC BY-SA 4.0; see `docs/licensing.md`.
+The page explicitly says that physical cartridge pickup is unverified. A
+successful upload proves validation and queue admission, not that the game
+has changed on a physical Famicom. The board render remains CC BY-SA 4.0; see
+`docs/licensing.md`.
+
+## Operator-controlled dispatch
+
+Open `/operator` and enter the operator token. The page is Japanese-first with
+an English switch; the token stays only in page memory. A valid visitor upload
+remains queued but **unreleased**. The operator presses **Send next game** to
+release exactly one waiting item. A second item cannot be released while one
+is queued for the cartridge, claimed, downloading, or deferred. The cartridge
+polls `/api/device/v2/next` and claims only released work. Staff may pause the
+queue or cancel a waiting item. A powered-on console may be interrupted only
+when the cartridge advertises that its locally tested configuration permits
+it; staff must then press the Famicom RESET button after the new image is
+verified. This last step is not yet physically validated.
 
 ## Local verification
 
@@ -30,7 +43,8 @@ npm test
 
 The integration test starts `wrangler dev` with local D1/R2 emulation and
 exercises upload, validation, duplicate rejection, HMAC authentication, replay
-rejection, job lease, private download, idempotent result, public status and
+rejection, operator release, duplicate-release prevention, powered-console
+policy, job lease, private download, idempotent result, public status, and
 operator pause/resume.
 
 ## Local interactive service
@@ -56,7 +70,7 @@ images in repository tests.
 ## Staging deployment
 
 Provision one D1 database and one private R2 bucket, put the D1 identifier in
-`wrangler.toml`, apply the migration remotely, set all three secrets with
+`wrangler.toml`, apply both migrations remotely, set all three secrets with
 `wrangler secret put`, then deploy. The `workers.dev` hostname is the staging
 endpoint; attaching a custom domain is a separate, reviewed step.
 

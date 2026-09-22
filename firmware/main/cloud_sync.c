@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "controller.h"
+#include "cloud_queue.h"
 #include "esp_check.h"
 #include "esp_crt_bundle.h"
 #include "esp_event.h"
@@ -29,6 +30,20 @@ static const char *TAG = "cloud_sync";
 
 #define CLOUD_CONNECTED_BIT BIT0
 
+#if CONFIG_NESCART_CLOUD_QUEUE_ENABLE
+static bool valid_device_id(const char *value)
+{
+    const size_t length = strlen(value);
+    if (length == 0 || length > 64) return false;
+    for (size_t i = 0; i < length; ++i) {
+        const char c = value[i];
+        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+              (c >= '0' && c <= '9') || c == '-' || c == '_')) return false;
+    }
+    return true;
+}
+#endif
+
 typedef enum {
     CLOUD_WAITING_WIFI,
     CLOUD_WAITING_TIME,
@@ -45,11 +60,16 @@ static bool s_sntp_started;
 
 static bool url_is_allowed(void)
 {
-    if (strncmp(CONFIG_NESCART_CLOUD_ROM_URL, "https://", 8) == 0) {
+#if CONFIG_NESCART_CLOUD_QUEUE_ENABLE
+    const char *url = CONFIG_NESCART_CLOUD_SERVICE_ORIGIN;
+#else
+    const char *url = CONFIG_NESCART_CLOUD_ROM_URL;
+#endif
+    if (strncmp(url, "https://", 8) == 0) {
         return true;
     }
 #if CONFIG_NESCART_CLOUD_ALLOW_INSECURE_HTTP
-    return strncmp(CONFIG_NESCART_CLOUD_ROM_URL, "http://", 7) == 0;
+    return strncmp(url, "http://", 7) == 0;
 #else
     return false;
 #endif
@@ -71,6 +91,7 @@ static void wifi_event(void *context, esp_event_base_t base,
     }
 }
 
+#if !CONFIG_NESCART_CLOUD_QUEUE_ENABLE
 static esp_err_t fetch_and_install(void)
 {
     controller_status_t controller;
@@ -171,6 +192,7 @@ cleanup:
     }
     return err;
 }
+#endif
 
 static esp_err_t ensure_trusted_time(void)
 {
@@ -204,7 +226,20 @@ static void cloud_task(void *context)
             continue;
         }
         s_state = CLOUD_IDLE;
+#if CONFIG_NESCART_CLOUD_QUEUE_ENABLE
+        cloud_queue_result_t result = CLOUD_QUEUE_WAITING;
+        const esp_err_t err = cloud_queue_poll(&result);
+        if (err != ESP_OK) {
+            s_state = CLOUD_ERROR;
+            ESP_LOGW(TAG, "queue poll failed: %s", esp_err_to_name(err));
+        } else if (result == CLOUD_QUEUE_DEFERRED) {
+            s_state = CLOUD_DEFERRED_CONSOLE;
+        } else if (result == CLOUD_QUEUE_INSTALLED) {
+            s_state = CLOUD_INSTALLED;
+        }
+#else
         (void)fetch_and_install();
+#endif
         vTaskDelay(pdMS_TO_TICKS(CONFIG_NESCART_CLOUD_POLL_SECONDS * 1000));
     }
 }
@@ -231,10 +266,23 @@ const char *cloud_sync_status_name(void)
 esp_err_t cloud_sync_prepare_wifi(void)
 {
     const size_t password_length = strlen(CONFIG_NESCART_CLOUD_STA_PASSWORD);
+#if CONFIG_NESCART_CLOUD_QUEUE_ENABLE
+    const char *url = CONFIG_NESCART_CLOUD_SERVICE_ORIGIN;
+    const char *host = strncmp(url, "https://", 8) == 0 ? url + 8 :
+                       strncmp(url, "http://", 7) == 0 ? url + 7 : url;
+    const bool credentials_ok =
+        valid_device_id(CONFIG_NESCART_CLOUD_DEVICE_ID) &&
+        strlen(CONFIG_NESCART_CLOUD_DEVICE_HMAC_SECRET) >= 32 &&
+        strlen(CONFIG_NESCART_CLOUD_DEVICE_HMAC_SECRET) <= 256 &&
+        *host != '\0' && strpbrk(host, "/?#@") == NULL;
+#else
+    const char *url = CONFIG_NESCART_CLOUD_ROM_URL;
+    const bool credentials_ok = true;
+#endif
     if (strlen(CONFIG_NESCART_CLOUD_STA_SSID) == 0 ||
-        strlen(CONFIG_NESCART_CLOUD_ROM_URL) == 0 || !url_is_allowed() ||
+        strlen(url) == 0 || !url_is_allowed() || !credentials_ok ||
         (password_length != 0 && password_length < 8)) {
-        ESP_LOGE(TAG, "cloud mode requires SSID, valid password, and allowed ROM URL");
+        ESP_LOGE(TAG, "cloud mode requires SSID, valid password, endpoint and device credentials");
         return ESP_ERR_INVALID_ARG;
     }
     s_wifi_events = xEventGroupCreate();
@@ -263,7 +311,10 @@ esp_err_t cloud_sync_prepare_wifi(void)
 
 esp_err_t cloud_sync_start(void)
 {
-    if (xTaskCreate(cloud_task, "cloud_rom", 10240, NULL, 4, NULL) != pdPASS) {
+    /* Keep network work off core 1, which the experimental mapper runtime
+     * reserves for its timing-critical GPIO loop when that firmware is merged. */
+    if (xTaskCreatePinnedToCore(cloud_task, "cloud_rom", 10240, NULL, 4,
+                                NULL, 0) != pdPASS) {
         return ESP_ERR_NO_MEM;
     }
     return ESP_OK;

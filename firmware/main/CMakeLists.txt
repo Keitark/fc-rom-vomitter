@@ -2,6 +2,7 @@ idf_component_register(
     SRCS
         "app_main.c"
         "cloud_sync.c"
+        "cloud_queue.c"
         "console_power.c"
         "controller.c"
         "ines.c"
@@ -22,6 +23,7 @@ idf_component_register(
         esp_netif
         esp_partition
         esp_wifi
+        json
         mbedtls
         nvs_flash
 )
