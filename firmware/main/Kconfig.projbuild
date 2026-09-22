@@ -19,6 +19,63 @@ config NESCART_WIFI_TX_POWER_QDBM
         44 means 11 dBm. Keep this conservative until console-rail and
         regulator thermal measurements are complete.
 
+config NESCART_USB_UPLOAD_ENABLE
+    bool "Enable native USB-C ROM upload"
+    default y
+    help
+        Accept framed binary iNES uploads over the ESP32-S3 USB Serial/JTAG
+        interface routed to the board's USB-C connector.
+
+config NESCART_USB_UPLOAD_TIMEOUT_MS
+    int "USB upload frame timeout in milliseconds"
+    depends on NESCART_USB_UPLOAD_ENABLE
+    range 1000 60000
+    default 15000
+
+config NESCART_CLOUD_PULL_ENABLE
+    bool "Enable HTTPS cloud ROM polling"
+    default n
+    select MBEDTLS_CERTIFICATE_BUNDLE
+    help
+        Keep the recovery SoftAP active and also join a Wi-Fi network to poll
+        a URL that returns one raw iNES file. Credentials remain in the local
+        sdkconfig and must not be committed.
+
+if NESCART_CLOUD_PULL_ENABLE
+
+config NESCART_CLOUD_STA_SSID
+    string "Cloud Wi-Fi SSID"
+
+config NESCART_CLOUD_STA_PASSWORD
+    string "Cloud Wi-Fi password"
+
+config NESCART_CLOUD_ROM_URL
+    string "HTTPS URL returning the raw iNES file"
+
+config NESCART_CLOUD_BEARER_TOKEN
+    string "Optional bearer token"
+    default ""
+
+config NESCART_CLOUD_POLL_SECONDS
+    int "Cloud polling interval in seconds"
+    range 15 86400
+    default 60
+
+config NESCART_CLOUD_HTTP_TIMEOUT_MS
+    int "Cloud request timeout in milliseconds"
+    range 1000 60000
+    default 10000
+
+config NESCART_CLOUD_ALLOW_CONSOLE_RELOAD
+    bool "Allow cloud update to interrupt a powered console"
+    default n
+
+config NESCART_CLOUD_ALLOW_INSECURE_HTTP
+    bool "Allow plain HTTP for isolated development only"
+    default n
+
+endif
+
 config NESCART_CONSOLE_ADC_THRESHOLD
     int "Raw ADC threshold for console 5 V present"
     range 100 4000

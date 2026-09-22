@@ -1,5 +1,6 @@
 #pragma once
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -26,3 +27,5 @@ uint32_t nescart_crc32(const void *data, size_t length);
 
 int ines_normalize(const uint8_t *input, size_t input_length,
                    nescart_image_t *output, char *error, size_t error_length);
+bool nescart_image_equal(const nescart_image_t *left,
+                         const nescart_image_t *right);

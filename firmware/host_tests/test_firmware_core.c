@@ -4,6 +4,7 @@
 
 #include "ines.h"
 #include "rom_slot.h"
+#include "rom_transport_protocol.h"
 
 #define CHECK(condition)                                                        \
     do {                                                                        \
@@ -116,6 +117,54 @@ static void test_slot_selection(void)
     CHECK(rom_slot_choose(true, 0, true, UINT32_MAX) == 0);
 }
 
+static void test_image_equality(void)
+{
+    size_t length;
+    uint8_t *rom = make_rom(2, 0x01, 0, 1, &length);
+    nescart_image_t *left = calloc(1, sizeof(*left));
+    nescart_image_t *right = calloc(1, sizeof(*right));
+    CHECK(left != NULL && right != NULL);
+    char error[128];
+    CHECK(ines_normalize(rom, length, left, error, sizeof(error)) == 0);
+    CHECK(ines_normalize(rom, length, right, error, sizeof(error)) == 0);
+    CHECK(nescart_image_equal(left, right));
+    right->data[123] ^= 1u;
+    CHECK(!nescart_image_equal(left, right));
+    right->data[123] ^= 1u;
+    right->mirroring = NESCART_MIRROR_HORIZONTAL;
+    CHECK(!nescart_image_equal(left, right));
+    CHECK(!nescart_image_equal(NULL, right));
+    free(right);
+    free(left);
+    free(rom);
+}
+
+static void test_usb_transport_header(void)
+{
+    uint8_t encoded[ROM_USB_HEADER_SIZE];
+    rom_usb_header_t decoded;
+    char error[128];
+    rom_usb_header_encode(encoded, 40976u, UINT32_C(0x12345678));
+    CHECK(rom_usb_header_decode(encoded, sizeof(encoded), 50000u, &decoded,
+                                error, sizeof(error)) == 0);
+    CHECK(decoded.payload_length == 40976u);
+    CHECK(decoded.payload_crc32 == UINT32_C(0x12345678));
+
+    encoded[0] = 'X';
+    CHECK(rom_usb_header_decode(encoded, sizeof(encoded), 50000u, &decoded,
+                                error, sizeof(error)) != 0);
+    rom_usb_header_encode(encoded, 40976u, 0);
+    encoded[4] = 2;
+    CHECK(rom_usb_header_decode(encoded, sizeof(encoded), 50000u, &decoded,
+                                error, sizeof(error)) != 0);
+    rom_usb_header_encode(encoded, 60000u, 0);
+    CHECK(rom_usb_header_decode(encoded, sizeof(encoded), 50000u, &decoded,
+                                error, sizeof(error)) != 0);
+    rom_usb_header_encode(encoded, 40976u, 0);
+    CHECK(rom_usb_header_decode(encoded, sizeof(encoded) - 1u, 50000u, &decoded,
+                                error, sizeof(error)) != 0);
+}
+
 int main(void)
 {
     test_crc();
@@ -123,6 +172,8 @@ int main(void)
     test_nrom_256_with_trainer();
     test_rejections();
     test_slot_selection();
+    test_image_equality();
+    test_usb_transport_header();
     puts("firmware core tests passed");
     return 0;
 }

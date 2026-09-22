@@ -5,6 +5,7 @@ enable_testing()
 add_executable(test_firmware_core
     test_firmware_core.c
     ../main/ines.c
+    ../main/rom_transport_protocol.c
     ../main/rom_slot.c
 )
 target_include_directories(test_firmware_core PRIVATE ../main)

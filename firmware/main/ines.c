@@ -118,3 +118,12 @@ int ines_normalize(const uint8_t *input, size_t input_length,
     }
     return 0;
 }
+
+bool nescart_image_equal(const nescart_image_t *left,
+                         const nescart_image_t *right)
+{
+    return left != NULL && right != NULL &&
+           left->crc32 == right->crc32 &&
+           left->mirroring == right->mirroring &&
+           memcmp(left->data, right->data, sizeof(left->data)) == 0;
+}

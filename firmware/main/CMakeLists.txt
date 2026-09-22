@@ -1,21 +1,27 @@
 idf_component_register(
     SRCS
         "app_main.c"
+        "cloud_sync.c"
         "console_power.c"
         "controller.c"
         "ines.c"
         "rom_slot.c"
         "rom_store.c"
+        "rom_transport_protocol.c"
         "sram_bus.c"
         "status_led.c"
+        "usb_loader.c"
         "web_server.c"
     INCLUDE_DIRS "."
     REQUIRES
         esp_adc
         esp_event
+        esp_http_client
         esp_http_server
+        esp_driver_usb_serial_jtag
         esp_netif
         esp_partition
         esp_wifi
+        mbedtls
         nvs_flash
 )

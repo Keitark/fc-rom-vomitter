@@ -6,6 +6,7 @@
 #include <string.h>
 
 #include "controller.h"
+#include "cloud_sync.h"
 #include "esp_check.h"
 #include "esp_http_server.h"
 #include "esp_log.h"
@@ -14,6 +15,7 @@
 #include "esp_wifi.h"
 #include "ines.h"
 #include "sdkconfig.h"
+#include "usb_loader.h"
 
 static const char *TAG = "web";
 
@@ -51,15 +53,19 @@ static esp_err_t status_handler(httpd_req_t *request)
 {
     controller_status_t status;
     controller_get_status(&status);
-    char response[512];
+    char response[640];
     snprintf(response, sizeof(response),
              "{\"mode\":\"%s\",\"console_power\":%s,\"console_exposed\":%s,"
              "\"has_image\":%s,\"sequence\":%" PRIu32 ",\"crc32\":\"%08" PRIx32 "\","
+             "\"usb_upload\":%s,\"cloud_pull\":%s,\"cloud_status\":\"%s\","
              "\"message\":\"%s\"}",
              controller_mode_name(status.mode), status.console_power ? "true" : "false",
              status.console_exposed ? "true" : "false",
              status.has_image ? "true" : "false", status.sequence,
-             status.image_crc32, status.message != NULL ? status.message : "");
+             status.image_crc32,
+             usb_loader_enabled() ? "true" : "false",
+             cloud_sync_enabled() ? "true" : "false",
+             cloud_sync_status_name(), status.message != NULL ? status.message : "");
     httpd_resp_set_type(request, "application/json");
     return httpd_resp_sendstr(request, response);
 }
@@ -112,6 +118,11 @@ esp_err_t web_server_start(void)
     if (esp_netif_create_default_wifi_ap() == NULL) {
         return ESP_FAIL;
     }
+#if CONFIG_NESCART_CLOUD_PULL_ENABLE
+    if (esp_netif_create_default_wifi_sta() == NULL) {
+        return ESP_FAIL;
+    }
+#endif
     wifi_init_config_t init = WIFI_INIT_CONFIG_DEFAULT();
     ESP_RETURN_ON_ERROR(esp_wifi_init(&init), TAG, "Wi-Fi init failed");
 
@@ -129,9 +140,13 @@ esp_err_t web_server_start(void)
                              ? WIFI_AUTH_WPA2_PSK
                              : WIFI_AUTH_OPEN;
 
-    ESP_RETURN_ON_ERROR(esp_wifi_set_mode(WIFI_MODE_AP), TAG, "AP mode failed");
+    ESP_RETURN_ON_ERROR(esp_wifi_set_mode(
+                            cloud_sync_enabled() ? WIFI_MODE_APSTA : WIFI_MODE_AP),
+                        TAG, "Wi-Fi mode failed");
     ESP_RETURN_ON_ERROR(esp_wifi_set_config(WIFI_IF_AP, &config), TAG, "AP config failed");
+    ESP_RETURN_ON_ERROR(cloud_sync_prepare_wifi(), TAG, "cloud Wi-Fi setup failed");
     ESP_RETURN_ON_ERROR(esp_wifi_start(), TAG, "Wi-Fi start failed");
+    ESP_RETURN_ON_ERROR(cloud_sync_start(), TAG, "cloud task start failed");
     esp_err_t power_err = esp_wifi_set_max_tx_power(CONFIG_NESCART_WIFI_TX_POWER_QDBM);
     if (power_err != ESP_OK) {
         ESP_LOGW(TAG, "TX power cap was not applied: %s", esp_err_to_name(power_err));

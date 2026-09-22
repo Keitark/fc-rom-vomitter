@@ -29,6 +29,9 @@
 4. バス所有権をRUN側へ切り替え、青LEDが点灯します。
 5. **ファミコン本体の赤いRESETボタン**を押すとゲームが開始します。
 
+ベンチ作業や自動取得向けに、[USB-C直接転送と任意のHTTPSクラウド取得](docs/rom-delivery-ja.md)
+も利用できます。どの転送方法でも同じ二重化FlashとSRAM照合処理を通ります。
+
 ファミコンにはNESのようなCICロックアウトがないため、カートリッジから本体を自動リセットできません。READY後に本体RESETを押すところまでがRev A-FCの通常手順です。
 
 ```mermaid
@@ -60,6 +63,7 @@ flowchart LR
 
 - [構成と安全設計](docs/architecture.md)
 - [初号機の安全な立ち上げ手順](docs/bring-up.md)
+- [ブラウザ・USB-C・クラウドのROM転送](docs/rom-delivery-ja.md)
 - [製造データの説明](docs/manufacturing.md)
 - [ファミコン60ピン表](hardware/docs/pinout-fc.md)
 - [回路図PDF](docs/nescart-fc-schematic.pdf)
