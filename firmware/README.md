@@ -1,8 +1,8 @@
 # ROM Vomitter FC firmware
 
-ESP-IDF firmware prepared for the released `hardware-fc` ESP32-S3-WROOM-1-N8
-board. It is intentionally marked **hardware-unvalidated** until the assembled
-boards arrive.
+ESP-IDF firmware for the released `hardware-fc` ESP32-S3-WROOM-1-N8 board.
+The new exhibition queue client builds, but remains **hardware-unvalidated**:
+building it does not mean it has been flashed to, or tested on, the cartridge.
 
 ## Current verification status
 
@@ -29,9 +29,40 @@ mandatory.
 - FC-specific UX: solid blue means READY; then press the **console's red RESET
   button**. Slow blink means no image; fast blink means transfer/load.
 - Conservative 11 dBm Wi-Fi TX cap until rail and regulator measurements exist.
+- Optional exhibition mode: signed polling of the Cloudflare queue. A visitor
+  upload waits until an operator presses **Send next game**; the cartridge then
+  fetches one released ROM, independently verifies its bytes and hashes, and
+  uses the same flash/SRAM installation path. The original fixed-URL pull mode
+  remains selectable.
 
 The default SoftAP password is `vomit-roms`; change it in menuconfig for any
 public or shared deployment.
+
+## Exhibition queue configuration (not yet tested on hardware)
+
+In `menuconfig`, enable cloud pull and its **operator-dispatched queue** mode.
+Set the venue Wi-Fi SSID/password, the service origin (for example,
+`https://fc-rom-vomitter-expo-staging.keitark.workers.dev`), a unique device ID,
+and a 32–256 character device HMAC secret matching the Worker's private secret.
+Enable **allow console reload** only for a supervised bench test after proving
+bus isolation and reset behavior with an oscilloscope. When enabled, an
+operator dispatch can interrupt a powered-on game; after READY, press the
+Famicom's RESET button. Otherwise the cartridge waits for a safe power state.
+
+The device credentials are compile-time settings. Never commit a generated
+`sdkconfig` containing them or distribute a credential-bearing binary. The
+`esp32-s3-cloud-ci` build uses dummy credentials solely to check compilation.
+The SoftAP upload remains the local recovery path; the public Worker cannot
+directly push bytes to a cartridge that is offline or not running this mode.
+
+The queue client here is built from the mapper-0 firmware. The separately
+patched Mapper 3/CNROM cartridge runs a timing-critical bank-switch task and
+**must not be flashed with this binary**: its mapper support is not integrated
+into this target. Before an exhibition deployment, merge the queue client into
+that firmware, keep HTTP on core 0 and the bank-switch loop on core 1, then
+measure bank-switch correctness and 3.3 V rail behavior during idle polling,
+download, and powered-console reload. Wi-Fi/polling must not be called
+``no impact'' merely because this target compiles.
 
 ## Build without a board
 

@@ -116,12 +116,27 @@ try {
   const statusQueued = await (await fetch(queued.status_url)).json();
   assert.equal(statusQueued.state, "queued");
   assert.equal(statusQueued.queue_position, 1);
+  assert.equal(statusQueued.dispatch_released, false);
+
+  const operatorHeaders = { Authorization: `Bearer ${operatorToken}`, "Content-Type": "application/json" };
+  const forbiddenQueue = await fetch(`${base}/api/operator/queue`);
+  assert.equal(forbiddenQueue.status, 401);
+  const waitingQueue = await (await fetch(`${base}/api/operator/queue`, { headers: operatorHeaders })).json();
+  assert.equal(waitingQueue.jobs.length, 1);
+  assert.equal(waitingQueue.jobs[0].released_at, null);
 
   const capabilities = Buffer.from(JSON.stringify({
     firmware: "integration-test", protocol: 2, mappers: [0], max_rom_bytes: 41488,
     active_sha256: "0".repeat(64), console_power: false, console_exposed: false,
   }));
   const nextPath = "/api/device/v2/next";
+  const beforeAdvance = await fetch(`${base}${nextPath}`, { method: "POST", headers: { ...signed(nextPath, "POST", capabilities), "Content-Type": "application/json" }, body: capabilities });
+  assert.equal(beforeAdvance.status, 204);
+  const advance = await fetch(`${base}/api/operator/advance`, { method: "POST", headers: operatorHeaders });
+  assert.equal(advance.status, 200);
+  const duplicateAdvance = await fetch(`${base}/api/operator/advance`, { method: "POST", headers: operatorHeaders });
+  assert.equal(duplicateAdvance.status, 409);
+  assert.equal((await (await fetch(queued.status_url)).json()).dispatch_released, true);
   const fixedNonce = randomBytes(18).toString("base64url");
   const next = await fetch(`${base}${nextPath}`, { method: "POST", headers: { ...signed(nextPath, "POST", capabilities, fixedNonce), "Content-Type": "application/json" }, body: capabilities });
   assert.equal(next.status, 200);
@@ -162,7 +177,6 @@ try {
   assert.equal(statusInstalled.state, "installed");
   assert.equal(statusInstalled.result_code, "ok");
 
-  const operatorHeaders = { Authorization: `Bearer ${operatorToken}`, "Content-Type": "application/json" };
   const pause = await fetch(`${base}/api/operator/pause`, { method: "POST", headers: operatorHeaders, body: JSON.stringify({ paused: true }) });
   assert.equal(pause.status, 200);
   const operator = await (await fetch(`${base}/api/operator/status`, { headers: operatorHeaders })).json();
@@ -175,14 +189,22 @@ try {
   const unsafeAccepted = await upload(unsafeRom, "unsafe-session-00000001", "192.0.2.16");
   assert.equal(unsafeAccepted.status, 202);
   const unsafeQueued = await unsafeAccepted.json();
+  assert.equal((await fetch(`${base}/api/operator/advance`, { method: "POST", headers: operatorHeaders })).status, 200);
   const unsafeCapabilities = Buffer.from(JSON.stringify({
     firmware: "integration-test", protocol: 2, mappers: [0], max_rom_bytes: 41488,
     active_sha256: "1".repeat(64), console_power: true, console_exposed: true,
+    can_interrupt_console: true,
   }));
+  const unsafeDisallowed = Buffer.from(JSON.stringify({
+    firmware: "integration-test", protocol: 2, mappers: [0], max_rom_bytes: 41488,
+    console_power: true, console_exposed: true, can_interrupt_console: false,
+  }));
+  const blockedWhilePlaying = await fetch(`${base}${nextPath}`, { method: "POST", headers: { ...signed(nextPath, "POST", unsafeDisallowed), "Content-Type": "application/json" }, body: unsafeDisallowed });
+  assert.equal(blockedWhilePlaying.status, 204);
   const firstUnsafePoll = await fetch(`${base}${nextPath}`, { method: "POST", headers: { ...signed(nextPath, "POST", unsafeCapabilities), "Content-Type": "application/json" }, body: unsafeCapabilities });
   assert.equal(firstUnsafePoll.status, 200);
   const firstUnsafeManifest = await firstUnsafePoll.json();
-  assert.equal(firstUnsafeManifest.install_policy, "defer_until_safe");
+  assert.equal(firstUnsafeManifest.install_policy, "manual_reset_after_install");
 
   const leaseRecoveryWaitMs = Math.max(0, Date.parse(firstUnsafeManifest.lease_expires_at) - Date.now() + 1200);
   await delay(leaseRecoveryWaitMs);
@@ -201,11 +223,21 @@ try {
   const deferred = await fetch(`${base}${unsafeResultPath}`, { method: "POST", headers: { ...signed(unsafeResultPath, "POST", deferredBody), "Content-Type": "application/json" }, body: deferredBody });
   assert.equal(deferred.status, 200);
   assert.equal((await deferred.json()).state, "deferred");
+  const stillUnsafe = await fetch(`${base}${nextPath}`, { method: "POST", headers: { ...signed(nextPath, "POST", unsafeDisallowed), "Content-Type": "application/json" }, body: unsafeDisallowed });
+  assert.equal(stillUnsafe.status, 204);
+  const safeCapabilities = Buffer.from(JSON.stringify({
+    firmware: "integration-test", protocol: 2, mappers: [0], max_rom_bytes: 41488,
+    console_power: false, console_exposed: false, can_interrupt_console: false,
+  }));
+  const safeResume = await fetch(`${base}${nextPath}`, { method: "POST", headers: { ...signed(nextPath, "POST", safeCapabilities), "Content-Type": "application/json" }, body: safeCapabilities });
+  assert.equal(safeResume.status, 200);
+  assert.equal((await safeResume.json()).job_id, recoveredManifest.job_id);
 
   const thirdRom = makeRom({ fill: 0x45 });
   const thirdAccepted = await upload(thirdRom, "third-session-000000001", "192.0.2.17");
   assert.equal(thirdAccepted.status, 202);
   const thirdQueued = await thirdAccepted.json();
+  assert.equal((await fetch(`${base}/api/operator/advance`, { method: "POST", headers: operatorHeaders })).status, 409);
   const queueFull = await upload(makeRom({ fill: 0x46 }), "full-session-0000000001", "192.0.2.18");
   assert.equal(queueFull.status, 503);
   assert.equal((await queueFull.json()).error, "queue_full");
@@ -214,6 +246,7 @@ try {
   const installedAfterDeferred = await fetch(`${base}${unsafeResultPath}`, { method: "POST", headers: { ...signed(unsafeResultPath, "POST", installedAfterDeferredBody), "Content-Type": "application/json" }, body: installedAfterDeferredBody });
   assert.equal(installedAfterDeferred.status, 200);
   assert.equal((await installedAfterDeferred.json()).state, "installed");
+  assert.equal((await fetch(`${base}/api/operator/advance`, { method: "POST", headers: operatorHeaders })).status, 200);
 
   const expiryWaitMs = Math.max(0, Date.parse(thirdQueued.expires_at) - Date.now() + 1200);
   await delay(expiryWaitMs);
@@ -223,8 +256,10 @@ try {
   console.log("integration PASS: upload -> lease -> authenticated download -> installed status");
   console.log("negative PASS: invalid, unauthorized, oversize, mapper, duplicate, cooldown, queue, replay, and pause gates");
   console.log("lifecycle PASS: lease recovery, unsafe deferral, later install, idempotency conflict, and expiry cleanup");
+} catch (error) {
+  console.error(logs);
+  throw error;
 } finally {
   server.kill("SIGTERM");
   await Promise.race([new Promise(resolve => server.once("exit", resolve)), delay(3000)]);
-  if (process.exitCode) console.error(logs);
 }
