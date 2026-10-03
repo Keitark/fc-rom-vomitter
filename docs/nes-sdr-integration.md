@@ -31,12 +31,16 @@ Not yet integrated:
 
 Each click advances the synthetic two-peak pattern by one column.
 
-## Important warning
+## ROM signature gate
 
-The demo endpoint rewrites CHR SRAM directly. It cannot yet identify whether
-the currently installed ROM is actually NES-SDR.
+The NES-SDR NROM embeds the fixed eight-byte signature `NES-SDR1` at CPU
+address `$FFF0` (normalized PRG offset `0x7FF0`).
 
-Use the demo button only after loading the NES-SDR ROM.
+The demo endpoint verifies that signature before touching CHR SRAM. A normal
+game or an older unsigned NES-SDR build is rejected with HTTP 409.
+
+This is still an experimental live-write path, but accidental use on unrelated
+ROMs is now blocked.
 
 ## Expected behavior
 
