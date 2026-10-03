@@ -71,6 +71,26 @@ the Famicom TV is reading/displaying the graph correctly. Counters are atomic
 individual readings, not a single locked transaction. The command works while
 the setup AP is offline and never changes radio mode or SRAM ownership.
 
+### Repeat page loads while monitoring USB
+
+With the PC connected to the AP and holding a valid `192.168.4.x/24` address:
+
+```text
+python firmware/tools/web_stability.py --port COM3 --output ../web-stability-results
+```
+
+This downloads `/` and `/api/status` 30 times at five-second intervals, then
+20 times at one-second intervals, using an HTTP session. Concurrent read-only
+USB queries record RF/AP/heap status every three seconds. Requests have bounded
+timeouts; CSV/JSON record response failures, times and heap ranges. Python
+`requests` and `pyserial` are required. This tests HTTP delivery and status
+responses; it does not execute browser JavaScript or validate rendering.
+
+Keep raw serial output local: Wi-Fi driver logs can contain client identifiers.
+If DHCP fails, resolve that network condition before interpreting HTTP timeouts
+as web-server failures. A temporary static Wi-Fi address requires administrator
+rights on Windows; record and restore the prior adapter configuration afterward.
+
 ## ROM signature gate
 
 The NES-SDR NROM embeds the fixed eight-byte signature `NES-SDR1` at CPU
