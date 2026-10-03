@@ -236,6 +236,33 @@ esp_err_t sram_bus_load_and_verify(const nescart_image_t *image,
     return ESP_OK;
 }
 
+esp_err_t sram_bus_refresh_chr(const uint8_t *data, size_t length)
+{
+    /* The first live format occupies exactly tiles 0..191. Refuse a wider
+     * write so the static font and axis cannot be changed by this path. */
+    if (data == NULL || length != 3072u) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    sram_bus_hold_isolated();
+    esp_err_t err = write_region(CHIP_CHR, data, length);
+    uint32_t crc = 0;
+    if (err == ESP_OK) {
+        err = verify_region(CHIP_CHR, data, length, &crc);
+    }
+    if (err != ESP_OK) {
+        sram_bus_hold_isolated();
+        return err;
+    }
+
+    ESP_LOGI(TAG, "live CHR verified: %u bytes, CRC %08" PRIx32,
+             (unsigned)length, crc);
+    /* The controller samples console power before deciding whether RUN is
+     * safe. Keep LOAD asserted until it makes that decision. */
+    sram_bus_hold_isolated();
+    return ESP_OK;
+}
+
 bool sram_bus_console_exposed(void)
 {
     return s_console_exposed;

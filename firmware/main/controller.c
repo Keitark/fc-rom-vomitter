@@ -11,6 +11,7 @@
 #include "freertos/semphr.h"
 #include "ines.h"
 #include "rom_store.h"
+#include "sdkconfig.h"
 #include "sram_bus.h"
 #include "status_led.h"
 
@@ -21,6 +22,18 @@ static controller_status_t s_status = {
     .mode = CONTROLLER_NO_IMAGE,
     .message = "No image stored. Upload a mapper-0 .nes file.",
 };
+
+static bool image_is_nes_sdr(const nescart_image_t *image)
+{
+    static const uint8_t marker[] = "NES-SDR-LIVE-V1";
+    if (image == NULL) return false;
+    for (size_t i = 0; i + sizeof(marker) - 1u <= NESCART_PRG_SIZE; ++i) {
+        if (memcmp(image->data + i, marker, sizeof(marker) - 1u) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
 
 static void set_mode(controller_mode_t mode, const char *message)
 {
@@ -58,10 +71,11 @@ static esp_err_t load_current_image(bool console_present)
 static void console_power_changed(bool present, void *context)
 {
     (void)context;
-    if (xSemaphoreTake(s_lock, portMAX_DELAY) != pdTRUE) {
+    if (xSemaphoreTakeRecursive(s_lock, portMAX_DELAY) != pdTRUE) {
         return;
     }
     s_status.console_power = present;
+    s_status.live_armed = false;
     if (present) {
         (void)load_current_image(true);
     } else {
@@ -71,12 +85,12 @@ static void console_power_changed(bool present, void *context)
         }
     }
     s_status.console_exposed = sram_bus_console_exposed();
-    xSemaphoreGive(s_lock);
+    xSemaphoreGiveRecursive(s_lock);
 }
 
 esp_err_t controller_init(void)
 {
-    s_lock = xSemaphoreCreateMutex();
+    s_lock = xSemaphoreCreateRecursiveMutex();
     if (s_lock == NULL) {
         return ESP_ERR_NO_MEM;
     }
@@ -133,12 +147,12 @@ esp_err_t controller_install_ines(const uint8_t *data, size_t length,
         return ESP_ERR_INVALID_ARG;
     }
 
-    if (xSemaphoreTake(s_lock, portMAX_DELAY) != pdTRUE) {
+    if (xSemaphoreTakeRecursive(s_lock, portMAX_DELAY) != pdTRUE) {
         free(candidate);
         return ESP_ERR_TIMEOUT;
     }
     if (nescart_image_equal(candidate, s_image)) {
-        xSemaphoreGive(s_lock);
+        xSemaphoreGiveRecursive(s_lock);
         free(candidate);
         if (error != NULL && error_length != 0) {
             error[0] = '\0';
@@ -146,6 +160,7 @@ esp_err_t controller_install_ines(const uint8_t *data, size_t length,
         ESP_LOGI(TAG, "received image is unchanged; flash commit skipped");
         return ESP_OK;
     }
+    s_status.live_armed = false;
     set_mode(CONTROLLER_TRANSFERRING,
              "Committing the new image to the inactive flash slot.");
     uint32_t sequence = 0;
@@ -153,7 +168,7 @@ esp_err_t controller_install_ines(const uint8_t *data, size_t length,
     if (err != ESP_OK) {
         set_mode(s_image != NULL ? CONTROLLER_READY : CONTROLLER_ERROR,
                  "Flash commit failed; the previous image remains valid.");
-        xSemaphoreGive(s_lock);
+        xSemaphoreGiveRecursive(s_lock);
         free(candidate);
         snprintf(error, error_length, "flash commit failed: %s", esp_err_to_name(err));
         return err;
@@ -166,7 +181,7 @@ esp_err_t controller_install_ines(const uint8_t *data, size_t length,
     s_status.image_crc32 = candidate->crc32;
     err = load_current_image(s_status.console_power);
     s_status.console_exposed = sram_bus_console_exposed();
-    xSemaphoreGive(s_lock);
+    xSemaphoreGiveRecursive(s_lock);
     free(old);
 
     if (err != ESP_OK) {
@@ -184,13 +199,100 @@ void controller_get_status(controller_status_t *status)
     if (status == NULL) {
         return;
     }
-    if (s_lock != NULL && xSemaphoreTake(s_lock, pdMS_TO_TICKS(100)) == pdTRUE) {
+    if (s_lock != NULL && xSemaphoreTakeRecursive(s_lock, pdMS_TO_TICKS(100)) == pdTRUE) {
         *status = s_status;
         status->console_exposed = sram_bus_console_exposed();
-        xSemaphoreGive(s_lock);
+        xSemaphoreGiveRecursive(s_lock);
     } else {
         *status = s_status;
     }
+}
+
+esp_err_t controller_refresh_chr(const uint8_t *data, size_t length)
+{
+    if (data == NULL || length != 3072u) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (s_lock == NULL || xSemaphoreTakeRecursive(s_lock, portMAX_DELAY) != pdTRUE) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    const bool power_ok = console_power_sample_now();
+    /* An installed ROM alone does not prove that the Famicom has been reset
+     * into its internal-RAM loop. The caller must arm this operation only
+     * after the NES-SDR screen is visibly running. */
+    if (s_image == NULL || s_status.mode != CONTROLLER_READY ||
+        !s_status.console_power || !power_ok ||
+        !sram_bus_console_exposed() ||
+        !s_status.live_armed) {
+        if (!power_ok) {
+            s_status.live_armed = false;
+            sram_bus_hold_isolated();
+            s_status.console_exposed = false;
+        }
+        xSemaphoreGiveRecursive(s_lock);
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    set_mode(CONTROLLER_LOADING, "Refreshing live CHR spectrum frame.");
+    esp_err_t err = sram_bus_refresh_chr(data, length);
+    if (err == ESP_OK && console_power_sample_now()) {
+        sram_bus_expose_to_console(s_image->mirroring);
+    } else if (err == ESP_OK) {
+        s_status.live_armed = false;
+        err = ESP_ERR_INVALID_STATE;
+    }
+    s_status.console_exposed = sram_bus_console_exposed();
+    if (err == ESP_OK) {
+        set_mode(CONTROLLER_READY, "Live CHR frame ready.");
+    } else if (err == ESP_ERR_INVALID_STATE) {
+        set_mode(CONTROLLER_READY, "Console power lost; live refresh disarmed.");
+    } else {
+        s_status.live_armed = false;
+        set_mode(CONTROLLER_ERROR,
+                 "Live CHR verification failed; console remains isolated.");
+    }
+    xSemaphoreGiveRecursive(s_lock);
+    return err;
+}
+
+esp_err_t controller_live_arm(void)
+{
+#if !CONFIG_NESCART_NES_SDR_LIVE_ENABLE
+    return ESP_ERR_NOT_SUPPORTED;
+#else
+    if (s_lock == NULL || xSemaphoreTakeRecursive(s_lock, portMAX_DELAY) != pdTRUE) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    esp_err_t err = ESP_ERR_INVALID_STATE;
+    if (image_is_nes_sdr(s_image) && s_status.mode == CONTROLLER_READY &&
+        s_status.console_power && console_power_sample_now() &&
+        sram_bus_console_exposed()) {
+        s_status.live_armed = true;
+        err = ESP_OK;
+    }
+    xSemaphoreGiveRecursive(s_lock);
+    return err;
+#endif
+}
+
+esp_err_t controller_live_begin(void)
+{
+    if (s_lock == NULL || xSemaphoreTakeRecursive(s_lock, portMAX_DELAY) != pdTRUE) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (s_image == NULL || s_status.mode != CONTROLLER_READY ||
+        !s_status.console_power || !console_power_sample_now() ||
+        !sram_bus_console_exposed() ||
+        !s_status.live_armed) {
+        xSemaphoreGiveRecursive(s_lock);
+        return ESP_ERR_INVALID_STATE;
+    }
+    return ESP_OK;
+}
+
+void controller_live_end(void)
+{
+    xSemaphoreGiveRecursive(s_lock);
 }
 
 const char *controller_mode_name(controller_mode_t mode)

@@ -66,6 +66,10 @@ download, and powered-console reload. Wi-Fi/polling must not be called
 
 ## Build without a board
 
+The opt-in NES-SDR synthetic and RF profiles, their source checkouts, manual
+arm command, and required scope gates are documented in
+[NES-SDR live integration](../docs/nes-sdr-integration.md).
+
 ```powershell
 cd firmware
 pio run -e esp32-s3

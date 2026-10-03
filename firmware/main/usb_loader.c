@@ -45,23 +45,24 @@ static int read_exact(void *output, size_t length, TickType_t timeout)
 
 static int find_magic(uint8_t header[ROM_USB_HEADER_SIZE])
 {
-    static const uint8_t magic[4] = {'R', 'V', 'U', 'P'};
-    size_t matched = 0;
-    while (matched < sizeof(magic)) {
+    /* RVUP starts a framed ROM upload. RVLA is an operator-only live arm
+     * command sent after the NES-SDR screen has been checked on hardware. */
+    uint8_t window[4] = {0};
+    for (;;) {
         uint8_t value = 0;
         if (usb_serial_jtag_read_bytes(&value, 1, portMAX_DELAY) != 1) {
             continue;
         }
-        if (value == magic[matched]) {
-            header[matched++] = value;
-        } else {
-            matched = value == magic[0] ? 1u : 0u;
-            if (matched == 1u) {
-                header[0] = value;
-            }
+        memmove(window, window + 1, 3);
+        window[3] = value;
+        if (memcmp(window, "RVUP", 4) == 0) {
+            memcpy(header, window, 4);
+            return 0;
+        }
+        if (memcmp(window, "RVLA", 4) == 0) {
+            return 1;
         }
     }
-    return 0;
 }
 
 static void send_response(const char *format, ...)
@@ -86,7 +87,15 @@ static void usb_loader_task(void *context)
     (void)context;
     uint8_t header_bytes[ROM_USB_HEADER_SIZE];
     for (;;) {
-        (void)find_magic(header_bytes);
+        if (find_magic(header_bytes) == 1) {
+            esp_err_t arm_err = controller_live_arm();
+            if (arm_err == ESP_OK) {
+                send_response("RVOK live_armed\n");
+            } else {
+                send_response("RVER live %s\n", esp_err_to_name(arm_err));
+            }
+            continue;
+        }
         if (read_exact(header_bytes + 4, ROM_USB_HEADER_SIZE - 4,
                        pdMS_TO_TICKS(CONFIG_NESCART_USB_UPLOAD_TIMEOUT_MS)) != 0) {
             send_response("RVER timeout incomplete_header\n");

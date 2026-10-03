@@ -80,6 +80,11 @@ bool console_power_present(void)
     return s_present;
 }
 
+bool console_power_sample_now(void)
+{
+    return sample_present();
+}
+
 esp_err_t console_power_start_monitor(console_power_callback_t callback,
                                       void *context)
 {

@@ -32,6 +32,24 @@ config NESCART_USB_UPLOAD_TIMEOUT_MS
     range 1000 60000
     default 15000
 
+config NESCART_NES_SDR_LIVE_ENABLE
+    bool "Experimental NES-SDR local RF live mode"
+    default n
+    depends on NESCART_USB_UPLOAD_ENABLE && !NESCART_CLOUD_PULL_ENABLE
+    help
+        Uses the ESP32-S3 radio in receive-only NULL mode instead of the
+        SoftAP. Install the NES-SDR ROM over USB, press Famicom RESET,
+        confirm the screen, then send RVLA over USB to arm live refresh.
+        Keep disabled until the board passes the documented bench gates.
+
+config NESCART_NES_SDR_SYNTHETIC
+    bool "Generate synthetic NES-SDR frames without RF capture"
+    default n
+    depends on NESCART_NES_SDR_LIVE_ENABLE
+    help
+        Bench profile for repeated LOAD/write/verify/RUN cycling. The ROM
+        and manual RVLA arm requirements remain in effect.
+
 config NESCART_CLOUD_PULL_ENABLE
     bool "Enable HTTPS cloud ROM polling"
     default n

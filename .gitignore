@@ -10,6 +10,7 @@
 firmware/sdkconfig
 firmware/sdkconfig.*
 !firmware/sdkconfig.defaults
+firmware/dependencies.lock
 firmware/host_tests/build/
 
 # Python/editor/OS
