@@ -236,6 +236,37 @@ esp_err_t sram_bus_load_and_verify(const nescart_image_t *image,
     return ESP_OK;
 }
 
+esp_err_t sram_bus_refresh_chr(const uint8_t *data, size_t length,
+                               nescart_mirroring_t mirroring,
+                               bool expose_to_console)
+{
+    if (data == NULL || length == 0 || length > NESCART_CHR_SIZE) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    sram_bus_hold_isolated();
+
+    esp_err_t err = write_region(CHIP_CHR, data, length);
+    uint32_t chr_crc = 0;
+    if (err == ESP_OK) {
+        err = verify_region(CHIP_CHR, data, length, &chr_crc);
+    }
+    if (err != ESP_OK) {
+        sram_bus_hold_isolated();
+        return err;
+    }
+
+    ESP_LOGI(TAG, "CHR refresh verified: %u bytes, CRC %08" PRIx32,
+             (unsigned)length, chr_crc);
+
+    if (expose_to_console) {
+        sram_bus_expose_to_console(mirroring);
+    } else {
+        sram_bus_hold_isolated();
+    }
+    return ESP_OK;
+}
+
 bool sram_bus_console_exposed(void)
 {
     return s_console_exposed;
