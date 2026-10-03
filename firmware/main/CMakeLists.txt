@@ -6,6 +6,7 @@ idf_component_register(
         "console_power.c"
         "controller.c"
         "ines.c"
+        "nes_sdr_platform.c"
         "rom_slot.c"
         "rom_store.c"
         "rom_transport_protocol.c"
