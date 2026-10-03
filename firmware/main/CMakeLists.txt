@@ -26,4 +26,5 @@ idf_component_register(
         json
         mbedtls
         nvs_flash
+        nes_sdr
 )
