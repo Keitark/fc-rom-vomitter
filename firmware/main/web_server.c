@@ -35,8 +35,10 @@ static const char INDEX_HTML[] =
     "The cartridge's ESP RST button does not launch the game.</p>"
     "<input id=file type=file accept='.nes,application/octet-stream'> "
     "<button id=upload>Upload</button> "
-    "<button id=nesdemo>NES-SDR demo frame</button>"
-    "<p class=warn>NES-SDR demo rewrites live CHR. Use it only after loading the NES-SDR ROM.</p>"
+    "<button id=nesdemo>NES-SDR demo frame</button> "
+    "<button id=nesrf>Start SDR mode</button>"
+    "<p class=warn>NES-SDR demo rewrites live CHR. Start SDR mode disconnects this Wi-Fi AP "
+    "and runs until the cartridge ESP is reset.</p>"
     "<pre id=status>Loading status...</pre>"
     "<script>async function status(){let r=await fetch('/api/status');"
     "document.querySelector('#status').textContent=JSON.stringify(await r.json(),null,2)}"
@@ -49,6 +51,10 @@ static const char INDEX_HTML[] =
     "if(!confirm('Rewrite the NES-SDR graph CHR now?'))return;"
     "let r=await fetch('/api/nes-sdr/demo-frame',{method:'POST'});"
     "let t=await r.text();if(!r.ok)alert(t);await status()};"
+    "document.querySelector('#nesrf').onclick=async()=>{"
+    "if(!confirm('Start exclusive SDR mode? This Wi-Fi AP will disconnect.'))return;"
+    "let r=await fetch('/api/nes-sdr/start-rf',{method:'POST'});"
+    "let t=await r.text();if(!r.ok)return alert(t);alert('SDR mode starting; Wi-Fi will disconnect.')};"
     "status();setInterval(status,2000)</script>"
     "</main></body></html>";
 
@@ -62,11 +68,12 @@ static esp_err_t status_handler(httpd_req_t *request)
 {
     controller_status_t status;
     controller_get_status(&status);
-    char response[640];
+    char response[768];
     snprintf(response, sizeof(response),
              "{\"mode\":\"%s\",\"console_power\":%s,\"console_exposed\":%s,"
              "\"has_image\":%s,\"sequence\":%" PRIu32 ",\"crc32\":\"%08" PRIx32 "\","
              "\"usb_upload\":%s,\"cloud_pull\":%s,\"cloud_status\":\"%s\","
+             "\"nes_sdr_rf_available\":%s,\"nes_sdr_rf_state\":\"%s\","
              "\"message\":\"%s\"}",
              controller_mode_name(status.mode), status.console_power ? "true" : "false",
              status.console_exposed ? "true" : "false",
@@ -74,7 +81,10 @@ static esp_err_t status_handler(httpd_req_t *request)
              status.image_crc32,
              usb_loader_enabled() ? "true" : "false",
              cloud_sync_enabled() ? "true" : "false",
-             cloud_sync_status_name(), status.message != NULL ? status.message : "");
+             cloud_sync_status_name(),
+             nes_sdr_platform_rf_available() ? "true" : "false",
+             nes_sdr_platform_rf_state_name(),
+             status.message != NULL ? status.message : "");
     httpd_resp_set_type(request, "application/json");
     return httpd_resp_sendstr(request, response);
 }
@@ -146,6 +156,43 @@ static esp_err_t nes_sdr_demo_handler(httpd_req_t *request)
         request, "{\"ok\":true,\"bytes\":3072,\"source\":\"synthetic-spc1\"}");
 }
 
+static esp_err_t nes_sdr_start_rf_handler(httpd_req_t *request)
+{
+    controller_status_t status;
+    controller_get_status(&status);
+    if (!status.has_image || !status.console_power) {
+        httpd_resp_set_status(request, "409 Conflict");
+        return httpd_resp_sendstr(
+            request, "Load signed NES-SDR and power the Famicom first");
+    }
+    if (!nes_sdr_platform_image_supported()) {
+        httpd_resp_set_status(request, "409 Conflict");
+        return httpd_resp_sendstr(
+            request, "Installed ROM is not a signed NES-SDR image");
+    }
+    if (cloud_sync_enabled()) {
+        httpd_resp_set_status(request, "409 Conflict");
+        return httpd_resp_sendstr(
+            request, "Disable cloud-pull mode before entering exclusive SDR mode");
+    }
+    if (!nes_sdr_platform_rf_available()) {
+        httpd_resp_set_status(request, "501 Not Implemented");
+        return httpd_resp_sendstr(
+            request, "ESP-SDR RF backend is not linked in this build");
+    }
+
+    const esp_err_t err = nes_sdr_platform_start_rf();
+    if (err != ESP_OK) {
+        httpd_resp_set_status(request, "500 Internal Server Error");
+        return httpd_resp_sendstr(request, esp_err_to_name(err));
+    }
+
+    httpd_resp_set_type(request, "application/json");
+    return httpd_resp_sendstr(
+        request,
+        "{\"ok\":true,\"next\":\"SoftAP will disconnect; reset ESP to stop SDR mode\"}");
+}
+
 esp_err_t web_server_start(void)
 {
     ESP_RETURN_ON_ERROR(esp_netif_init(), TAG, "netif init failed");
@@ -189,7 +236,7 @@ esp_err_t web_server_start(void)
     (void)esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
 
     httpd_config_t server_config = HTTPD_DEFAULT_CONFIG();
-    server_config.max_uri_handlers = 5;
+    server_config.max_uri_handlers = 6;
     server_config.stack_size = 8192;
     httpd_handle_t server = NULL;
     ESP_RETURN_ON_ERROR(httpd_start(&server, &server_config), TAG, "HTTP server failed");
@@ -207,11 +254,18 @@ esp_err_t web_server_start(void)
         .method = HTTP_POST,
         .handler = nes_sdr_demo_handler,
     };
+    const httpd_uri_t nes_sdr_start_rf_uri = {
+        .uri = "/api/nes-sdr/start-rf",
+        .method = HTTP_POST,
+        .handler = nes_sdr_start_rf_handler,
+    };
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(server, &index_uri), TAG, "index route failed");
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(server, &status_uri), TAG, "status route failed");
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(server, &upload_uri), TAG, "upload route failed");
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(server, &nes_sdr_demo_uri),
                         TAG, "NES-SDR demo route failed");
+    ESP_RETURN_ON_ERROR(httpd_register_uri_handler(server, &nes_sdr_start_rf_uri),
+                        TAG, "NES-SDR RF route failed");
     ESP_LOGI(TAG, "SoftAP %s ready at http://192.168.4.1", config.ap.ssid);
     return ESP_OK;
 }
