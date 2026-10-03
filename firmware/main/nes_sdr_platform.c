@@ -5,7 +5,13 @@
 #include <stdint.h>
 #include <string.h>
 
+#include "cloud_sync.h"
 #include "controller.h"
+#include "esp_log.h"
+#include "esp_wifi.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "nes_sdr_backend.h"
 #include "nes_sdr_frame.h"
 #include "nes_sdr_live.h"
 
@@ -19,11 +25,22 @@ enum {
 static const uint8_t NES_SDR_SIGNATURE[] = "NES-SDR1";
 enum { NES_SDR_SIGNATURE_PRG_OFFSET = 0x7ff0 };
 
+typedef enum {
+    RF_STATE_UNAVAILABLE,
+    RF_STATE_IDLE,
+    RF_STATE_STARTING,
+    RF_STATE_RUNNING,
+    RF_STATE_ERROR,
+} rf_state_t;
+
+static const char *TAG = "nes_sdr";
 static uint8_t s_frame[SYNTH_FRAME_BYTES];
 static uint8_t s_graph[NES_SDR_GRAPH_BYTES];
 static nes_sdr_live_stats_t s_stats;
 static uint32_t s_frame_number;
 static unsigned s_phase;
+static TaskHandle_t s_rf_task;
+static volatile rf_state_t s_rf_state = RF_STATE_IDLE;
 
 static void put16(uint8_t *p, uint16_t value)
 {
@@ -91,11 +108,37 @@ static int refresh_graph(void *context, const uint8_t *graph, size_t length)
     return controller_refresh_chr(graph, length) == ESP_OK ? 0 : -1;
 }
 
+static bool rf_capture(void *context, const uint8_t **frame, size_t *length)
+{
+    (void)context;
+    return nes_sdr_rf_backend_capture(2442u, 75u, frame, length);
+}
+
 bool nes_sdr_platform_image_supported(void)
 {
     return controller_prg_matches(NES_SDR_SIGNATURE_PRG_OFFSET,
                                   NES_SDR_SIGNATURE,
                                   sizeof(NES_SDR_SIGNATURE) - 1u);
+}
+
+bool nes_sdr_platform_rf_available(void)
+{
+    return nes_sdr_rf_backend_available();
+}
+
+const char *nes_sdr_platform_rf_state_name(void)
+{
+    if (!nes_sdr_rf_backend_available()) {
+        return "unavailable";
+    }
+    switch (s_rf_state) {
+    case RF_STATE_IDLE: return "idle";
+    case RF_STATE_STARTING: return "starting";
+    case RF_STATE_RUNNING: return "running";
+    case RF_STATE_ERROR: return "error";
+    case RF_STATE_UNAVAILABLE:
+    default: return "unavailable";
+    }
 }
 
 esp_err_t nes_sdr_platform_demo_step(void)
@@ -122,4 +165,100 @@ esp_err_t nes_sdr_platform_demo_step(void)
     default:
         return ESP_FAIL;
     }
+}
+
+
+static void rf_task(void *context)
+{
+    (void)context;
+
+    /* Give the HTTP response time to leave before the SoftAP disappears. */
+    vTaskDelay(pdMS_TO_TICKS(500));
+
+    esp_err_t err = esp_wifi_stop();
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "failed to stop setup Wi-Fi: %s", esp_err_to_name(err));
+        goto fail;
+    }
+    err = esp_wifi_set_mode(WIFI_MODE_NULL);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "failed to select WIFI_MODE_NULL: %s", esp_err_to_name(err));
+        goto fail;
+    }
+    err = esp_wifi_start();
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "failed to restart Wi-Fi PHY: %s", esp_err_to_name(err));
+        goto fail;
+    }
+    err = esp_wifi_set_ps(WIFI_PS_NONE);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "failed to disable Wi-Fi power save: %s", esp_err_to_name(err));
+        goto fail;
+    }
+    err = esp_wifi_set_promiscuous(true);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "failed to enable promiscuous RX: %s", esp_err_to_name(err));
+        goto fail;
+    }
+    err = esp_wifi_set_channel(1, WIFI_SECOND_CHAN_NONE);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "failed to seed RX channel: %s", esp_err_to_name(err));
+        goto fail;
+    }
+
+    s_rf_state = RF_STATE_RUNNING;
+    ESP_LOGI(TAG, "exclusive SDR mode active; SoftAP is offline");
+
+    const nes_sdr_live_ops_t ops = {
+        .capture = rf_capture,
+        .capture_context = NULL,
+        .refresh = refresh_graph,
+        .refresh_context = NULL,
+    };
+    TickType_t wake = xTaskGetTickCount();
+
+    for (;;) {
+        const nes_sdr_live_result_t result =
+            nes_sdr_live_step(&ops, &s_stats, s_graph);
+        if (result == NES_SDR_LIVE_OK) {
+            ESP_LOGI(TAG, "RF frame %" PRIu32 " refreshed",
+                     s_stats.frames_ok);
+        } else {
+            ESP_LOGW(TAG, "RF refresh failed: %d", (int)result);
+        }
+        vTaskDelayUntil(&wake, pdMS_TO_TICKS(1000));
+    }
+
+fail:
+    s_rf_state = RF_STATE_ERROR;
+    s_rf_task = NULL;
+    vTaskDelete(NULL);
+}
+
+esp_err_t nes_sdr_platform_start_rf(void)
+{
+    if (!nes_sdr_rf_backend_available()) {
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+    if (cloud_sync_enabled() || !nes_sdr_platform_image_supported()) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    controller_status_t status;
+    controller_get_status(&status);
+    if (!status.console_power ||
+        s_rf_state == RF_STATE_STARTING ||
+        s_rf_state == RF_STATE_RUNNING ||
+        s_rf_task != NULL) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    s_rf_state = RF_STATE_STARTING;
+    if (xTaskCreatePinnedToCore(rf_task, "nes_sdr_rf", 8192, NULL, 5,
+                                &s_rf_task, 0) != pdPASS) {
+        s_rf_task = NULL;
+        s_rf_state = RF_STATE_ERROR;
+        return ESP_ERR_NO_MEM;
+    }
+    return ESP_OK;
 }
