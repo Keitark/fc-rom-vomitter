@@ -1,6 +1,7 @@
 #include "nes_sdr_platform.h"
 
 #include <stdbool.h>
+#include <inttypes.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
