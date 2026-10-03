@@ -254,6 +254,8 @@ static void rf_task(void *context)
                      esp_err_to_name(err));
             goto fail;
         }
+        /* Re-anchor after any USB upload that held the controller lock. */
+        wake = xTaskGetTickCount();
         const int64_t start = esp_timer_get_time();
         const int64_t period_us = previous_start == 0 ? 0 : start - previous_start;
         previous_start = start;
