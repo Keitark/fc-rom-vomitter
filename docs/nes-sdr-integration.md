@@ -14,11 +14,17 @@ Implemented:
   `POST /api/nes-sdr/demo-frame`;
 - browser button for one synthetic graph refresh.
 
-Not yet integrated:
+The RF task targets **5 Hz** (200 ms/frame) with a 50 ms capture window.
+The GPL ESP-SDR backend is supplied by the separate `Keitark/nes-sdr`
+combined-build workflow and is not vendored in this branch. Firmware built
+from this branch alone reports the RF backend as unavailable.
 
-- ESP-SDR RF capture/FFT source.
-
-The RF task skeleton now targets **5 Hz** (200 ms/frame) with a 50 ms RF capture budget; hardware timing still needs validation.
+The RF task holds the controller lock from capture through CHR readback, so
+uploads and console power callbacks cannot change SRAM ownership mid-frame.
+Each attempt logs capture, estimated render, refresh, total, and frame period in
+microseconds. The SRAM log records CHR write, verify, and console blackout
+times; a frame over 200 ms is flagged. These logs are instrumentation, not
+hardware timing evidence.
 
 ## First hardware test
 

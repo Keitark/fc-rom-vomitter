@@ -9,6 +9,7 @@
 #include "cloud_sync.h"
 #include "controller.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -43,6 +44,11 @@ static uint32_t s_frame_number;
 static unsigned s_phase;
 static TaskHandle_t s_rf_task;
 static volatile rf_state_t s_rf_state = RF_STATE_IDLE;
+
+typedef struct {
+    int64_t capture_us;
+    int64_t refresh_us;
+} rf_cycle_timing_t;
 
 static void put16(uint8_t *p, uint16_t value)
 {
@@ -106,20 +112,26 @@ static bool synthetic_capture(void *context, const uint8_t **frame, size_t *leng
 
 static int refresh_graph(void *context, const uint8_t *graph, size_t length)
 {
-    (void)context;
-    return controller_refresh_chr_if_prg_matches(
+    const int64_t start = esp_timer_get_time();
+    const esp_err_t err = controller_refresh_chr_if_prg_matches(
                graph, length,
                NES_SDR_SIGNATURE_PRG_OFFSET,
                NES_SDR_SIGNATURE,
-               sizeof(NES_SDR_SIGNATURE) - 1u) == ESP_OK
-               ? 0
-               : -1;
+               sizeof(NES_SDR_SIGNATURE) - 1u);
+    if (context != NULL) {
+        ((rf_cycle_timing_t *)context)->refresh_us = esp_timer_get_time() - start;
+    }
+    return err == ESP_OK ? 0 : -1;
 }
 
 static bool rf_capture(void *context, const uint8_t **frame, size_t *length)
 {
-    (void)context;
-    return nes_sdr_rf_backend_capture(2442u, 50u, frame, length);
+    const int64_t start = esp_timer_get_time();
+    const bool ok = nes_sdr_rf_backend_capture(2442u, 50u, frame, length);
+    if (context != NULL) {
+        ((rf_cycle_timing_t *)context)->capture_us = esp_timer_get_time() - start;
+    }
+    return ok;
 }
 
 bool nes_sdr_platform_image_supported(void)
@@ -223,22 +235,41 @@ static void rf_task(void *context)
     s_rf_state = RF_STATE_RUNNING;
     ESP_LOGI(TAG, "exclusive SDR mode active; SoftAP is offline");
 
-    const nes_sdr_live_ops_t ops = {
-        .capture = rf_capture,
-        .capture_context = NULL,
-        .refresh = refresh_graph,
-        .refresh_context = NULL,
-    };
     TickType_t wake = xTaskGetTickCount();
+    int64_t previous_start = 0;
 
     for (;;) {
+        rf_cycle_timing_t timing = {0};
+        const nes_sdr_live_ops_t ops = {
+            .capture = rf_capture,
+            .capture_context = &timing,
+            .refresh = refresh_graph,
+            .refresh_context = &timing,
+        };
+        err = controller_live_cycle_begin(NES_SDR_SIGNATURE_PRG_OFFSET,
+                                          NES_SDR_SIGNATURE,
+                                          sizeof(NES_SDR_SIGNATURE) - 1u);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "RF cycle stopped: signed image or console power lost (%s)",
+                     esp_err_to_name(err));
+            goto fail;
+        }
+        const int64_t start = esp_timer_get_time();
+        const int64_t period_us = previous_start == 0 ? 0 : start - previous_start;
+        previous_start = start;
         const nes_sdr_live_result_t result =
             nes_sdr_live_step(&ops, &s_stats, s_graph);
-        if (result == NES_SDR_LIVE_OK) {
-            ESP_LOGI(TAG, "RF frame %" PRIu32 " refreshed",
-                     s_stats.frames_ok);
-        } else {
-            ESP_LOGW(TAG, "RF refresh failed: %d", (int)result);
+        const int64_t total_us = esp_timer_get_time() - start;
+        controller_live_cycle_end();
+        const int64_t render_us = total_us - timing.capture_us - timing.refresh_us;
+        ESP_LOGI(TAG, "RF frame %" PRIu32 " result=%d capture=%" PRId64
+                 "us render=%" PRId64 "us refresh=%" PRId64
+                 "us total=%" PRId64 "us period=%" PRId64
+                 "us target=200000us",
+                 s_stats.attempts, (int)result, timing.capture_us, render_us,
+                 timing.refresh_us, total_us, period_us);
+        if (total_us > 200000) {
+            ESP_LOGW(TAG, "RF frame exceeded the 200 ms budget");
         }
         vTaskDelayUntil(&wake, pdMS_TO_TICKS(200));
     }

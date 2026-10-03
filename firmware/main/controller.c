@@ -58,7 +58,7 @@ static esp_err_t load_current_image(bool console_present)
 static void console_power_changed(bool present, void *context)
 {
     (void)context;
-    if (xSemaphoreTake(s_lock, portMAX_DELAY) != pdTRUE) {
+    if (xSemaphoreTakeRecursive(s_lock, portMAX_DELAY) != pdTRUE) {
         return;
     }
     s_status.console_power = present;
@@ -71,12 +71,12 @@ static void console_power_changed(bool present, void *context)
         }
     }
     s_status.console_exposed = sram_bus_console_exposed();
-    xSemaphoreGive(s_lock);
+    xSemaphoreGiveRecursive(s_lock);
 }
 
 esp_err_t controller_init(void)
 {
-    s_lock = xSemaphoreCreateMutex();
+    s_lock = xSemaphoreCreateRecursiveMutex();
     if (s_lock == NULL) {
         return ESP_ERR_NO_MEM;
     }
@@ -133,12 +133,12 @@ esp_err_t controller_install_ines(const uint8_t *data, size_t length,
         return ESP_ERR_INVALID_ARG;
     }
 
-    if (xSemaphoreTake(s_lock, portMAX_DELAY) != pdTRUE) {
+    if (xSemaphoreTakeRecursive(s_lock, portMAX_DELAY) != pdTRUE) {
         free(candidate);
         return ESP_ERR_TIMEOUT;
     }
     if (nescart_image_equal(candidate, s_image)) {
-        xSemaphoreGive(s_lock);
+        xSemaphoreGiveRecursive(s_lock);
         free(candidate);
         if (error != NULL && error_length != 0) {
             error[0] = '\0';
@@ -153,7 +153,7 @@ esp_err_t controller_install_ines(const uint8_t *data, size_t length,
     if (err != ESP_OK) {
         set_mode(s_image != NULL ? CONTROLLER_READY : CONTROLLER_ERROR,
                  "Flash commit failed; the previous image remains valid.");
-        xSemaphoreGive(s_lock);
+        xSemaphoreGiveRecursive(s_lock);
         free(candidate);
         snprintf(error, error_length, "flash commit failed: %s", esp_err_to_name(err));
         return err;
@@ -166,7 +166,7 @@ esp_err_t controller_install_ines(const uint8_t *data, size_t length,
     s_status.image_crc32 = candidate->crc32;
     err = load_current_image(s_status.console_power);
     s_status.console_exposed = sram_bus_console_exposed();
-    xSemaphoreGive(s_lock);
+    xSemaphoreGiveRecursive(s_lock);
     free(old);
 
     if (err != ESP_OK) {
@@ -182,13 +182,16 @@ esp_err_t controller_install_ines(const uint8_t *data, size_t length,
 static esp_err_t refresh_chr_locked(const uint8_t *data, size_t length)
 {
     set_mode(CONTROLLER_LOADING, "Refreshing CHR SRAM and verifying readback.");
+    /* The power monitor may have sampled a change while waiting for this lock. */
+    const bool console_present = console_power_present();
+    s_status.console_power = console_present;
     esp_err_t err = sram_bus_refresh_chr(data, length, s_image->mirroring,
-                                         s_status.console_power);
+                                         console_present);
     s_status.console_exposed = sram_bus_console_exposed();
 
     if (err == ESP_OK) {
         set_mode(CONTROLLER_READY,
-                 s_status.console_power
+                 console_present
                      ? "Live CHR frame ready."
                      : "CHR frame verified. Waiting for console power.");
     } else {
@@ -203,16 +206,16 @@ esp_err_t controller_refresh_chr(const uint8_t *data, size_t length)
     if (data == NULL || length == 0 || length > NESCART_CHR_SIZE) {
         return ESP_ERR_INVALID_ARG;
     }
-    if (xSemaphoreTake(s_lock, portMAX_DELAY) != pdTRUE) {
+    if (xSemaphoreTakeRecursive(s_lock, portMAX_DELAY) != pdTRUE) {
         return ESP_ERR_TIMEOUT;
     }
     if (s_image == NULL) {
-        xSemaphoreGive(s_lock);
+        xSemaphoreGiveRecursive(s_lock);
         return ESP_ERR_NOT_FOUND;
     }
 
     const esp_err_t err = refresh_chr_locked(data, length);
-    xSemaphoreGive(s_lock);
+    xSemaphoreGiveRecursive(s_lock);
     return err;
 }
 
@@ -226,18 +229,42 @@ esp_err_t controller_refresh_chr_if_prg_matches(
         expected_length > NESCART_PRG_SIZE - prg_offset) {
         return ESP_ERR_INVALID_ARG;
     }
-    if (xSemaphoreTake(s_lock, portMAX_DELAY) != pdTRUE) {
+    if (xSemaphoreTakeRecursive(s_lock, portMAX_DELAY) != pdTRUE) {
         return ESP_ERR_TIMEOUT;
     }
     if (s_image == NULL ||
         memcmp(s_image->data + prg_offset, expected, expected_length) != 0) {
-        xSemaphoreGive(s_lock);
+        xSemaphoreGiveRecursive(s_lock);
         return ESP_ERR_INVALID_STATE;
     }
 
     const esp_err_t err = refresh_chr_locked(data, length);
-    xSemaphoreGive(s_lock);
+    xSemaphoreGiveRecursive(s_lock);
     return err;
+}
+
+esp_err_t controller_live_cycle_begin(size_t prg_offset,
+                                      const void *expected, size_t expected_length)
+{
+    if (expected == NULL || expected_length == 0 ||
+        prg_offset > NESCART_PRG_SIZE ||
+        expected_length > NESCART_PRG_SIZE - prg_offset || s_lock == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (xSemaphoreTakeRecursive(s_lock, portMAX_DELAY) != pdTRUE) {
+        return ESP_ERR_TIMEOUT;
+    }
+    if (s_image == NULL || !console_power_present() ||
+        memcmp(s_image->data + prg_offset, expected, expected_length) != 0) {
+        xSemaphoreGiveRecursive(s_lock);
+        return ESP_ERR_INVALID_STATE;
+    }
+    return ESP_OK;
+}
+
+void controller_live_cycle_end(void)
+{
+    xSemaphoreGiveRecursive(s_lock);
 }
 
 bool controller_prg_matches(size_t offset, const void *expected, size_t length)
@@ -246,13 +273,13 @@ bool controller_prg_matches(size_t offset, const void *expected, size_t length)
         length > NESCART_PRG_SIZE - offset || s_lock == NULL) {
         return false;
     }
-    if (xSemaphoreTake(s_lock, pdMS_TO_TICKS(100)) != pdTRUE) {
+    if (xSemaphoreTakeRecursive(s_lock, pdMS_TO_TICKS(100)) != pdTRUE) {
         return false;
     }
 
     const bool matches =
         s_image != NULL && memcmp(s_image->data + offset, expected, length) == 0;
-    xSemaphoreGive(s_lock);
+    xSemaphoreGiveRecursive(s_lock);
     return matches;
 }
 
@@ -261,10 +288,10 @@ void controller_get_status(controller_status_t *status)
     if (status == NULL) {
         return;
     }
-    if (s_lock != NULL && xSemaphoreTake(s_lock, pdMS_TO_TICKS(100)) == pdTRUE) {
+    if (s_lock != NULL && xSemaphoreTakeRecursive(s_lock, pdMS_TO_TICKS(100)) == pdTRUE) {
         *status = s_status;
         status->console_exposed = sram_bus_console_exposed();
-        xSemaphoreGive(s_lock);
+        xSemaphoreGiveRecursive(s_lock);
     } else {
         *status = s_status;
     }
