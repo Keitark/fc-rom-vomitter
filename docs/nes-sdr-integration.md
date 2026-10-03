@@ -16,8 +16,9 @@ Implemented:
 
 Not yet integrated:
 
-- ESP-SDR RF capture/FFT source;
-- automatic ~1 Hz refresh task.
+- ESP-SDR RF capture/FFT source.
+
+The RF task skeleton now targets **5 Hz** (200 ms/frame) with a 50 ms RF capture budget; hardware timing still needs validation.
 
 ## First hardware test
 
@@ -41,6 +42,18 @@ game or an older unsigned NES-SDR build is rejected with HTTP 409.
 
 This is still an experimental live-write path, but accidental use on unrelated
 ROMs is now blocked.
+
+## Refresh target
+
+The first live RF target is **5 Hz**:
+
+```text
+200 ms frame budget
+  ~50 ms   RF capture / FFT
+  remainder CHR render + write + verify + margin
+```
+
+If full 3072-byte write+verify does not fit comfortably, optimize the existing SRAM path or add dirty-tile updates before increasing the rate. The baseline must preserve bus-safety and readback verification.
 
 ## Expected behavior
 
