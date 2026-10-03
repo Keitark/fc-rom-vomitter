@@ -7,6 +7,15 @@ import serial
 from serial.tools import list_ports
 
 
+def status_line(text):
+    # A boot/log fragment can share a line with the direct USB reply.
+    for prefix in ('RVST ', 'RVAP ', 'RVROM '):
+        position = text.find(prefix)
+        if position >= 0:
+            return prefix, text[position:]
+    return None
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--port', help='Defaults to the only ESP32-S3 VID303A/PID1001 port')
@@ -42,11 +51,11 @@ def main():
                     pending[:] = rest
                     text = line.decode('utf-8', 'replace').strip()
                     print(text, flush=True)
-                    for prefix in ('RVST ', 'RVAP ', 'RVROM '):
-                        if text.startswith(prefix):
-                            seen.add(prefix)
+                    reply = status_line(text)
+                    if reply is not None:
+                        seen.add(reply[0])
             if len(seen) < 3:
-                raise SystemExit('Incomplete RVST response. Older firmware has no RVST support; no reset was sent.')
+                raise SystemExit('Incomplete RVST response: board busy or firmware lacks RVST support. No reset was sent.')
             if query + 1 < args.count:
                 time.sleep(args.interval)
     finally:
