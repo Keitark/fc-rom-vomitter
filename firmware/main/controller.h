@@ -27,5 +27,6 @@ typedef struct {
 esp_err_t controller_init(void);
 esp_err_t controller_install_ines(const uint8_t *data, size_t length,
                                   char *error, size_t error_length);
+esp_err_t controller_refresh_chr(const uint8_t *data, size_t length);
 void controller_get_status(controller_status_t *status);
 const char *controller_mode_name(controller_mode_t mode);
