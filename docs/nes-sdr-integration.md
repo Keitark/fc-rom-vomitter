@@ -109,6 +109,14 @@ for qualified clients. Apply the same policy before AP start and recovery.
 The STA interface, WPA2 password, channel and TX-power limit are preserved.
 The RF task continues to stop the setup AP before local RF captures.
 
+DHCP uses broadcast replies (`CONFIG_LWIP_DHCPS_STATIC_ENTRIES=n`). On the
+observed Windows/BUFFALO client, Discover packets allowed unicast responses
+but no Offer reached the client with the SDK's unicast/static-ARP mode enabled.
+For existing local sdkconfig files, disable that option explicitly; defaults
+only initialize settings absent from an existing configuration. Validate a
+full Discover/Offer/Request/ACK exchange and automatic client address before
+claiming this compatibility correction works on a given adapter.
+
 ## ROM signature gate
 
 The NES-SDR NROM embeds the fixed eight-byte signature `NES-SDR1` at CPU
