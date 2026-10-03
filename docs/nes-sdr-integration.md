@@ -117,6 +117,15 @@ only initialize settings absent from an existing configuration. Validate a
 full Discover/Offer/Request/ACK exchange and automatic client address before
 claiming this compatibility correction works on a given adapter.
 
+Read-only USB status also emits `RVDHCP rx=... discover=... request=...
+offer_prepared=... ack_prepared=...`. These cumulative counters observe IPv4
+DHCP packets arriving on the AP interface and the SDK's reply-options hook.
+The reply hook runs before allocating/transmitting the response: a prepared
+Offer or ACK does **not** prove delivery. Compare counter changes during one
+connection attempt with a client packet capture and its assigned IPv4 address.
+The observer consumes no packets, appends no options, and creates no task or
+heap allocation. Counters reset at ESP restart.
+
 ## ROM signature gate
 
 The NES-SDR NROM embeds the fixed eight-byte signature `NES-SDR1` at CPU

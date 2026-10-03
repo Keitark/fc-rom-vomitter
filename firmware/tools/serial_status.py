@@ -9,7 +9,7 @@ from serial.tools import list_ports
 
 def status_line(text):
     # A boot/log fragment can share a line with the direct USB reply.
-    for prefix in ('RVST ', 'RVAP ', 'RVROM '):
+    for prefix in ('RVST ', 'RVAP ', 'RVDHCP ', 'RVROM '):
         position = text.find(prefix)
         if position >= 0:
             return prefix, text[position:]
@@ -53,7 +53,8 @@ def main():
                     print(text, flush=True)
                     reply = status_line(text)
                     if reply is not None:
-                        seen.add(reply[0])
+                        if reply[0] != 'RVDHCP ':
+                            seen.add(reply[0])
             if len(seen) < 3:
                 raise SystemExit('Incomplete RVST response: board busy or firmware lacks RVST support. No reset was sent.')
             if query + 1 < args.count:

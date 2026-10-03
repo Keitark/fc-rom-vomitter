@@ -8,6 +8,7 @@
 #include "esp_netif.h"
 #include "nes_sdr_platform.h"
 #include "serial_status.h"
+#include "ap_dhcp_trace.h"
 
 #define CHECK(condition) do { if (!(condition)) { \
     fprintf(stderr, "%s:%d: %s\n", __FILE__, __LINE__, #condition); exit(1); \
@@ -46,11 +47,13 @@ esp_err_t esp_netif_dhcps_get_status(esp_netif_t *netif, esp_netif_dhcp_status_t
 const char *esp_err_to_name(esp_err_t error) { return error == ESP_OK ? "ESP_OK" : "ESP_FAIL"; }
 void controller_get_status(controller_status_t *status)
 {
-    CHECK(lines == 2); /* RF/AP must arrive before a potentially busy controller. */
+    CHECK(lines == 3); /* RF/AP/DHCP precede a potentially busy controller. */
     *status = (controller_status_t){.has_image = true, .console_power = true,
         .console_exposed = true, .mode = CONTROLLER_READY, .sequence = 9,
         .image_crc32 = 0x92acccb3};
 }
+void ap_dhcp_trace_snapshot(ap_dhcp_trace_t *status)
+{ *status = (ap_dhcp_trace_t){3, 2, 1, 2, 1}; }
 const char *controller_mode_name(controller_mode_t value)
 { CHECK(value == CONTROLLER_READY); return "ready"; }
 size_t heap_caps_get_free_size(uint32_t caps) { (void)caps; return 32768; }
@@ -59,7 +62,7 @@ static void run(void)
 {
     output[0] = 0; lines = 0; queries = 0;
     serial_status_send(emit, output);
-    CHECK(lines == 3);
+    CHECK(lines == 4);
 }
 int main(void)
 {
@@ -69,6 +72,7 @@ int main(void)
     CHECK(strstr(output, "RVAP mode=null clients=0 error=ESP_OK ") && queries == 0);
     CHECK(strstr(output, "dhcp=off dhcp_error=ESP_OK\n"));
     CHECK(strstr(output, "RVROM image=1 power=1 exposed=1 mode=ready sequence=9"));
+    CHECK(strstr(output, "RVDHCP rx=3 discover=2 request=1 offer_prepared=2 ack_prepared=1\n"));
     mode = WIFI_MODE_AP; clients = 2; rf_state = "idle"; run();
     CHECK(strstr(output, "RVAP mode=ap clients=2 error=ESP_OK ") && queries == 1);
     CHECK(strstr(output, "protocol=3 bandwidth_mhz=20 radio_error=ESP_OK dhcp=started"));
