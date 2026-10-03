@@ -119,7 +119,7 @@ static int refresh_graph(void *context, const uint8_t *graph, size_t length)
 static bool rf_capture(void *context, const uint8_t **frame, size_t *length)
 {
     (void)context;
-    return nes_sdr_rf_backend_capture(2442u, 75u, frame, length);
+    return nes_sdr_rf_backend_capture(2442u, 50u, frame, length);
 }
 
 bool nes_sdr_platform_image_supported(void)
@@ -240,7 +240,7 @@ static void rf_task(void *context)
         } else {
             ESP_LOGW(TAG, "RF refresh failed: %d", (int)result);
         }
-        vTaskDelayUntil(&wake, pdMS_TO_TICKS(1000));
+        vTaskDelayUntil(&wake, pdMS_TO_TICKS(200));
     }
 
 fail:
