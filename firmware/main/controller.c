@@ -179,19 +179,8 @@ esp_err_t controller_install_ines(const uint8_t *data, size_t length,
     return ESP_OK;
 }
 
-esp_err_t controller_refresh_chr(const uint8_t *data, size_t length)
+static esp_err_t refresh_chr_locked(const uint8_t *data, size_t length)
 {
-    if (data == NULL || length == 0 || length > NESCART_CHR_SIZE) {
-        return ESP_ERR_INVALID_ARG;
-    }
-    if (xSemaphoreTake(s_lock, portMAX_DELAY) != pdTRUE) {
-        return ESP_ERR_TIMEOUT;
-    }
-    if (s_image == NULL) {
-        xSemaphoreGive(s_lock);
-        return ESP_ERR_NOT_FOUND;
-    }
-
     set_mode(CONTROLLER_LOADING, "Refreshing CHR SRAM and verifying readback.");
     esp_err_t err = sram_bus_refresh_chr(data, length, s_image->mirroring,
                                          s_status.console_power);
@@ -206,7 +195,47 @@ esp_err_t controller_refresh_chr(const uint8_t *data, size_t length)
         set_mode(CONTROLLER_ERROR,
                  "CHR refresh failed; console remains isolated.");
     }
+    return err;
+}
 
+esp_err_t controller_refresh_chr(const uint8_t *data, size_t length)
+{
+    if (data == NULL || length == 0 || length > NESCART_CHR_SIZE) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (xSemaphoreTake(s_lock, portMAX_DELAY) != pdTRUE) {
+        return ESP_ERR_TIMEOUT;
+    }
+    if (s_image == NULL) {
+        xSemaphoreGive(s_lock);
+        return ESP_ERR_NOT_FOUND;
+    }
+
+    const esp_err_t err = refresh_chr_locked(data, length);
+    xSemaphoreGive(s_lock);
+    return err;
+}
+
+esp_err_t controller_refresh_chr_if_prg_matches(
+    const uint8_t *data, size_t length,
+    size_t prg_offset, const void *expected, size_t expected_length)
+{
+    if (data == NULL || length == 0 || length > NESCART_CHR_SIZE ||
+        expected == NULL || expected_length == 0 ||
+        prg_offset > NESCART_PRG_SIZE ||
+        expected_length > NESCART_PRG_SIZE - prg_offset) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (xSemaphoreTake(s_lock, portMAX_DELAY) != pdTRUE) {
+        return ESP_ERR_TIMEOUT;
+    }
+    if (s_image == NULL ||
+        memcmp(s_image->data + prg_offset, expected, expected_length) != 0) {
+        xSemaphoreGive(s_lock);
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    const esp_err_t err = refresh_chr_locked(data, length);
     xSemaphoreGive(s_lock);
     return err;
 }
