@@ -61,6 +61,10 @@ Three lines report:
   microseconds, and CRC of the last successfully written graph.
 - `RVAP`: current Wi-Fi mode and associated AP station count. `null` means no
   AP. `clients=-1` plus an error means the query failed, not zero clients.
+  `protocol=3` means 802.11b/g; `7` adds 802.11n. `bandwidth_mhz` is the actual
+  configured AP bandwidth. `dhcp=started` confirms the DHCP server is running;
+  it does not by itself establish that a client received an address. Failed
+  radio/DHCP queries report their separate errors and unknown values.
 - `RVROM`: installed-image, detected console-power and bus-exposure flags,
   image identity, free heap and largest block.
 
@@ -90,6 +94,20 @@ Keep raw serial output local: Wi-Fi driver logs can contain client identifiers.
 If DHCP fails, resolve that network condition before interpreting HTTP timeouts
 as web-server failures. A temporary static Wi-Fi address requires administrator
 rights on Windows; record and restore the prior adapter configuration afterward.
+
+### Setup AP compatibility
+
+The setup AP explicitly uses 802.11b/g at 20 MHz by default. This avoids HT
+negotiation/block-ack interoperability on older clients when the combined
+memory profile disables AMPDU buffering. The observed BUFFALO baseline joined
+as 802.11n/40 MHz and repeatedly tore down block-ack sessions while Windows
+remained link-local; the Wi-Fi cause must be validated by automatic DHCP and
+page tests after applying the correction.
+
+`CONFIG_NESCART_AP_HT_ENABLE=y` optionally enables 802.11n, still at 20 MHz,
+for qualified clients. Apply the same policy before AP start and recovery.
+The STA interface, WPA2 password, channel and TX-power limit are preserved.
+The RF task continues to stop the setup AP before local RF captures.
 
 ## ROM signature gate
 

@@ -5,6 +5,7 @@
 
 #include "controller.h"
 #include "esp_heap_caps.h"
+#include "esp_netif.h"
 #include "esp_wifi.h"
 #include "nes_sdr_platform.h"
 
@@ -34,7 +35,8 @@ void serial_status_send(serial_status_emit_fn emit, void *context)
     emit(line, context);
 
     wifi_mode_t mode = WIFI_MODE_NULL;
-    esp_err_t err = esp_wifi_get_mode(&mode);
+    const esp_err_t mode_err = esp_wifi_get_mode(&mode);
+    esp_err_t err = mode_err;
     int clients = -1; /* Never turn a failed query into a zero-client claim. */
     const char *mode_name = err == ESP_OK ? wifi_mode_name(mode) : "unknown";
     if (err == ESP_OK) {
@@ -46,8 +48,33 @@ void serial_status_send(serial_status_emit_fn emit, void *context)
             clients = 0;
         }
     }
-    snprintf(line, sizeof(line), "RVAP mode=%s clients=%d error=%s\n",
-             mode_name, clients, esp_err_to_name(err));
+    int protocol = -1, bandwidth_mhz = -1;
+    const char *dhcp_name = "off";
+    esp_err_t radio_err = ESP_OK, dhcp_err = ESP_OK;
+    if (mode_err == ESP_OK && (mode == WIFI_MODE_AP || mode == WIFI_MODE_APSTA)) {
+        uint8_t actual_protocol;
+        wifi_bandwidth_t bandwidth;
+        radio_err = esp_wifi_get_protocol(WIFI_IF_AP, &actual_protocol);
+        if (radio_err == ESP_OK) protocol = actual_protocol;
+        if (radio_err == ESP_OK) {
+            radio_err = esp_wifi_get_bandwidth(WIFI_IF_AP, &bandwidth);
+            if (radio_err == ESP_OK) bandwidth_mhz = bandwidth == WIFI_BW_HT20 ? 20 : 40;
+        }
+        esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_AP_DEF");
+        esp_netif_dhcp_status_t dhcp = ESP_NETIF_DHCP_INIT;
+        dhcp_err = netif == NULL ? ESP_ERR_INVALID_STATE : esp_netif_dhcps_get_status(netif, &dhcp);
+        dhcp_name = dhcp_err != ESP_OK ? "unknown" :
+                    dhcp == ESP_NETIF_DHCP_STARTED ? "started" :
+                    dhcp == ESP_NETIF_DHCP_STOPPED ? "stopped" : "init";
+    } else if (mode_err != ESP_OK) {
+        dhcp_name = "unknown";
+        radio_err = dhcp_err = err;
+    }
+    snprintf(line, sizeof(line),
+             "RVAP mode=%s clients=%d error=%s protocol=%d bandwidth_mhz=%d"
+             " radio_error=%s dhcp=%s dhcp_error=%s\n",
+             mode_name, clients, esp_err_to_name(err), protocol, bandwidth_mhz,
+             esp_err_to_name(radio_err), dhcp_name, esp_err_to_name(dhcp_err));
     emit(line, context);
 
     /* Send RF/AP first so a busy controller cannot hide their status. */

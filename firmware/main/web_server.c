@@ -6,6 +6,7 @@
 #include <string.h>
 
 #include "controller.h"
+#include "ap_compat.h"
 #include "cloud_sync.h"
 #include "esp_check.h"
 #include "esp_http_server.h"
@@ -22,6 +23,11 @@
 static const char *TAG = "web";
 static httpd_handle_t s_server;
 static esp_err_t start_http_server(void);
+#if CONFIG_NESCART_AP_HT_ENABLE
+static const bool AP_ALLOW_HT = true;
+#else
+static const bool AP_ALLOW_HT = false;
+#endif
 
 static const char INDEX_HTML[] =
     "<!doctype html><html><head><meta charset=utf-8>"
@@ -241,6 +247,7 @@ esp_err_t web_server_resume_after_sdr_failure(void)
         return err;
     }
     ESP_RETURN_ON_ERROR(esp_wifi_set_mode(WIFI_MODE_AP), TAG, "AP mode recovery failed");
+    ESP_RETURN_ON_ERROR(ap_compat_apply(AP_ALLOW_HT), TAG, "AP compatibility recovery failed");
     ESP_RETURN_ON_ERROR(esp_wifi_start(), TAG, "AP restart failed");
     ESP_RETURN_ON_ERROR(start_http_server(), TAG, "HTTP restart failed");
     ESP_LOGI(TAG, "setup AP and HTTP server restored after SDR startup failure");
@@ -280,6 +287,7 @@ esp_err_t web_server_start(void)
                             cloud_sync_enabled() ? WIFI_MODE_APSTA : WIFI_MODE_AP),
                         TAG, "Wi-Fi mode failed");
     ESP_RETURN_ON_ERROR(esp_wifi_set_config(WIFI_IF_AP, &config), TAG, "AP config failed");
+    ESP_RETURN_ON_ERROR(ap_compat_apply(AP_ALLOW_HT), TAG, "AP compatibility config failed");
     ESP_RETURN_ON_ERROR(cloud_sync_prepare_wifi(), TAG, "cloud Wi-Fi setup failed");
     ESP_RETURN_ON_ERROR(esp_wifi_start(), TAG, "Wi-Fi start failed");
     ESP_RETURN_ON_ERROR(cloud_sync_start(), TAG, "cloud task start failed");

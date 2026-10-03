@@ -1,6 +1,7 @@
 idf_component_register(
     SRCS
         "app_main.c"
+        "ap_compat.c"
         "cloud_sync.c"
         "cloud_queue.c"
         "console_power.c"
