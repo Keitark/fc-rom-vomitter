@@ -15,6 +15,7 @@
 #include "nes_sdr_backend.h"
 #include "nes_sdr_frame.h"
 #include "nes_sdr_live.h"
+#include "web_server.h"
 
 enum {
     SYNTH_FFT_BINS = 256,
@@ -176,7 +177,13 @@ static void rf_task(void *context)
     /* Give the HTTP response time to leave before the SoftAP disappears. */
     vTaskDelay(pdMS_TO_TICKS(500));
 
-    esp_err_t err = esp_wifi_stop();
+    esp_err_t err = web_server_stop_for_sdr();
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "failed to stop HTTP server: %s", esp_err_to_name(err));
+        goto fail;
+    }
+
+    err = esp_wifi_stop();
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "failed to stop setup Wi-Fi: %s", esp_err_to_name(err));
         goto fail;
