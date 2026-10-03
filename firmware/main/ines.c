@@ -44,27 +44,29 @@ uint32_t nescart_crc32(const void *data, size_t length)
         nescart_crc32_update(nescart_crc32_begin(), data, length));
 }
 
-int ines_normalize(const uint8_t *input, size_t input_length,
-                   nescart_image_t *output, char *error, size_t error_length)
+typedef struct {
+    size_t trainer_size;
+    size_t prg_size;
+    nescart_mirroring_t mirroring;
+} ines_layout_t;
+
+static int parse_layout(const uint8_t *header, size_t input_length,
+                        ines_layout_t *layout, char *error, size_t error_length)
 {
     enum { HEADER_SIZE = 16, TRAINER_SIZE = 512 };
-    if (input == NULL || output == NULL) {
-        set_error(error, error_length, "missing input or output buffer");
-        return -1;
-    }
     if (input_length < HEADER_SIZE) {
         set_error(error, error_length, "file is shorter than the 16-byte iNES header");
         return -1;
     }
-    if (memcmp(input, "NES\x1a", 4) != 0) {
+    if (memcmp(header, "NES\x1a", 4) != 0) {
         set_error(error, error_length, "not an iNES file (missing NES 1A magic)");
         return -1;
     }
 
-    const uint8_t prg_banks = input[4];
-    const uint8_t chr_banks = input[5];
-    const uint8_t flags6 = input[6];
-    const uint8_t flags7 = input[7];
+    const uint8_t prg_banks = header[4];
+    const uint8_t chr_banks = header[5];
+    const uint8_t flags6 = header[6];
+    const uint8_t flags7 = header[7];
     const unsigned mapper = (unsigned)(flags6 >> 4) | (unsigned)(flags7 & 0xf0u);
 
     if ((flags7 & 0x0cu) == 0x08u) {
@@ -88,34 +90,95 @@ int ines_normalize(const uint8_t *input, size_t input_length,
         return -1;
     }
 
-    const size_t trainer_size = (flags6 & 0x04u) ? TRAINER_SIZE : 0u;
-    const size_t prg_size = (size_t)prg_banks * 16u * 1024u;
+    layout->trainer_size = (flags6 & 0x04u) ? TRAINER_SIZE : 0u;
+    layout->prg_size = (size_t)prg_banks * 16u * 1024u;
     const size_t chr_size = 8u * 1024u;
-    const size_t expected = HEADER_SIZE + trainer_size + prg_size + chr_size;
+    const size_t expected = HEADER_SIZE + layout->trainer_size + layout->prg_size + chr_size;
     if (input_length != expected) {
         set_error(error, error_length, "unexpected file length: expected %zu, got %zu",
                   expected, input_length);
         return -1;
     }
 
-    const uint8_t *prg = input + HEADER_SIZE + trainer_size;
-    const uint8_t *chr = prg + prg_size;
-    if (prg_banks == 1) {
-        memcpy(output->data, prg, 16u * 1024u);
-        memcpy(output->data + 16u * 1024u, prg, 16u * 1024u);
-    } else {
-        memcpy(output->data, prg, NESCART_PRG_SIZE);
-    }
-    memcpy(output->data + NESCART_PRG_SIZE, chr, NESCART_CHR_SIZE);
-
     /* U17 selects PPU_A10 at LOW (vertical) and PPU_A11 at HIGH (horizontal). */
-    output->mirroring = (flags6 & 0x01u)
+    layout->mirroring = (flags6 & 0x01u)
                             ? NESCART_MIRROR_VERTICAL
                             : NESCART_MIRROR_HORIZONTAL;
+    return 0;
+}
+
+static void finish_image(nescart_image_t *output, const ines_layout_t *layout,
+                         char *error, size_t error_length)
+{
+    if (layout->prg_size == 16u * 1024u) {
+        memcpy(output->data + 16u * 1024u, output->data, 16u * 1024u);
+    }
+    output->mirroring = layout->mirroring;
     output->crc32 = nescart_crc32(output->data, sizeof(output->data));
     if (error != NULL && error_length != 0) {
         error[0] = '\0';
     }
+}
+
+int ines_normalize(const uint8_t *input, size_t input_length,
+                   nescart_image_t *output, char *error, size_t error_length)
+{
+    if (input == NULL || output == NULL) {
+        set_error(error, error_length, "missing input or output buffer");
+        return -1;
+    }
+    ines_layout_t layout;
+    if (parse_layout(input, input_length, &layout, error, error_length) != 0) {
+        return -1;
+    }
+    const uint8_t *prg = input + 16u + layout.trainer_size;
+    const uint8_t *chr = prg + layout.prg_size;
+    if (layout.prg_size == 16u * 1024u) {
+        memcpy(output->data, prg, 16u * 1024u);
+    } else {
+        memcpy(output->data, prg, NESCART_PRG_SIZE);
+    }
+    memcpy(output->data + NESCART_PRG_SIZE, chr, NESCART_CHR_SIZE);
+    finish_image(output, &layout, error, error_length);
+    return 0;
+}
+
+int ines_normalize_stream(ines_read_exact_fn read_exact, void *context,
+                          size_t input_length, nescart_image_t *output,
+                          char *error, size_t error_length)
+{
+    if (read_exact == NULL || output == NULL) {
+        set_error(error, error_length, "missing reader or output buffer");
+        return -1;
+    }
+    if (input_length < 16u) {
+        set_error(error, error_length, "file is shorter than the 16-byte iNES header");
+        return -1;
+    }
+    uint8_t header[16];
+    if (read_exact(context, header, sizeof(header)) != 0) {
+        set_error(error, error_length, "iNES header read failed");
+        return -1;
+    }
+    ines_layout_t layout;
+    if (parse_layout(header, input_length, &layout, error, error_length) != 0) {
+        return -1;
+    }
+    uint8_t discard[128];
+    for (size_t left = layout.trainer_size; left != 0;) {
+        const size_t count = left < sizeof(discard) ? left : sizeof(discard);
+        if (read_exact(context, discard, count) != 0) {
+            set_error(error, error_length, "iNES trainer read failed");
+            return -1;
+        }
+        left -= count;
+    }
+    if (read_exact(context, output->data, layout.prg_size) != 0 ||
+        read_exact(context, output->data + NESCART_PRG_SIZE, NESCART_CHR_SIZE) != 0) {
+        set_error(error, error_length, "iNES payload read failed");
+        return -1;
+    }
+    finish_image(output, &layout, error, error_length);
     return 0;
 }
 

@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include "esp_err.h"
+#include "ines.h"
 
 typedef enum {
     CONTROLLER_NO_IMAGE,
@@ -27,6 +28,9 @@ typedef struct {
 esp_err_t controller_init(void);
 esp_err_t controller_install_ines(const uint8_t *data, size_t length,
                                   char *error, size_t error_length);
+esp_err_t controller_install_ines_stream(ines_read_exact_fn read_exact,
+                                         void *context, size_t length,
+                                         char *error, size_t error_length);
 esp_err_t controller_refresh_chr(const uint8_t *data, size_t length);
 esp_err_t controller_refresh_chr_if_prg_matches(
     const uint8_t *data, size_t length,

@@ -179,6 +179,95 @@ esp_err_t controller_install_ines(const uint8_t *data, size_t length,
     return ESP_OK;
 }
 
+static esp_err_t restore_stream_image(bool had_image,
+                                      const controller_status_t *previous)
+{
+    if (had_image) {
+        esp_err_t err = rom_store_load_latest(s_image, NULL);
+        if (err != ESP_OK) {
+            sram_bus_hold_isolated();
+            set_mode(CONTROLLER_ERROR, "Previous ROM could not be restored.");
+            s_status.console_exposed = sram_bus_console_exposed();
+            return err;
+        }
+    } else {
+        free(s_image);
+        s_image = NULL;
+    }
+    s_status = *previous;
+    set_mode(previous->mode, previous->message);
+    s_status.console_exposed = sram_bus_console_exposed();
+    return ESP_OK;
+}
+
+esp_err_t controller_install_ines_stream(ines_read_exact_fn read_exact,
+                                         void *context, size_t length,
+                                         char *error, size_t error_length)
+{
+    if (read_exact == NULL || length < 16u || length > NESCART_MAX_INES_SIZE ||
+        s_lock == NULL) {
+        snprintf(error, error_length, "invalid iNES stream");
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (xSemaphoreTakeRecursive(s_lock, portMAX_DELAY) != pdTRUE) {
+        snprintf(error, error_length, "controller lock failed");
+        return ESP_ERR_TIMEOUT;
+    }
+    const controller_status_t previous = s_status;
+    const bool had_image = s_image != NULL;
+    /* The committed flash slot is rollback while the sole 40 KiB RAM image
+       buffer is reused for the incoming stream. */
+    if (!had_image) {
+        s_image = calloc(1, sizeof(*s_image));
+        if (s_image == NULL) {
+            xSemaphoreGiveRecursive(s_lock);
+            snprintf(error, error_length, "out of memory for ROM image");
+            return ESP_ERR_NO_MEM;
+        }
+    }
+
+    set_mode(CONTROLLER_TRANSFERRING, "Receiving ROM into the image buffer.");
+    if (ines_normalize_stream(read_exact, context, length, s_image,
+                              error, error_length) != 0) {
+        const esp_err_t restored = restore_stream_image(had_image, &previous);
+        xSemaphoreGiveRecursive(s_lock);
+        if (restored != ESP_OK) {
+            snprintf(error, error_length, "previous ROM restore failed: %s",
+                     esp_err_to_name(restored));
+            return restored;
+        }
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    set_mode(CONTROLLER_TRANSFERRING,
+             "Committing the new image to the inactive flash slot.");
+    uint32_t sequence = 0;
+    esp_err_t err = rom_store_commit(s_image, &sequence);
+    if (err != ESP_OK) {
+        const esp_err_t restored = restore_stream_image(had_image, &previous);
+        xSemaphoreGiveRecursive(s_lock);
+        snprintf(error, error_length, "flash commit failed: %s",
+                 esp_err_to_name(restored != ESP_OK ? restored : err));
+        return restored != ESP_OK ? restored : err;
+    }
+
+    s_status.has_image = true;
+    s_status.sequence = sequence;
+    s_status.image_crc32 = s_image->crc32;
+    s_status.console_power = console_power_present();
+    err = load_current_image(s_status.console_power);
+    s_status.console_exposed = sram_bus_console_exposed();
+    xSemaphoreGiveRecursive(s_lock);
+    if (err != ESP_OK) {
+        snprintf(error, error_length, "image saved, but SRAM verification failed");
+        return err;
+    }
+    if (error != NULL && error_length != 0) {
+        error[0] = '\0';
+    }
+    return ESP_OK;
+}
+
 static esp_err_t refresh_chr_locked(const uint8_t *data, size_t length)
 {
     set_mode(CONTROLLER_LOADING, "Refreshing CHR SRAM and verifying readback.");
