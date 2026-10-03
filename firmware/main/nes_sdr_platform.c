@@ -107,7 +107,13 @@ static bool synthetic_capture(void *context, const uint8_t **frame, size_t *leng
 static int refresh_graph(void *context, const uint8_t *graph, size_t length)
 {
     (void)context;
-    return controller_refresh_chr(graph, length) == ESP_OK ? 0 : -1;
+    return controller_refresh_chr_if_prg_matches(
+               graph, length,
+               NES_SDR_SIGNATURE_PRG_OFFSET,
+               NES_SDR_SIGNATURE,
+               sizeof(NES_SDR_SIGNATURE) - 1u) == ESP_OK
+               ? 0
+               : -1;
 }
 
 static bool rf_capture(void *context, const uint8_t **frame, size_t *length)
