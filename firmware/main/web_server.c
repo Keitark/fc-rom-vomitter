@@ -14,6 +14,7 @@
 #include "esp_netif.h"
 #include "esp_wifi.h"
 #include "ines.h"
+#include "nes_sdr_frame.h"
 #include "sdkconfig.h"
 #include "usb_loader.h"
 
@@ -33,14 +34,22 @@ static const char INDEX_HTML[] =
     "Wait for the blue LED to become solid, then press the console's red RESET button. "
     "The cartridge's ESP RST button does not launch the game.</p>"
     "<input id=file type=file accept='.nes,application/octet-stream'> "
-    "<button id=upload>Upload</button><pre id=status>Loading status...</pre>"
+    "<button id=upload>Upload</button> "
+    "<button id=nesdemo>NES-SDR demo frame</button>"
+    "<p class=warn>NES-SDR demo rewrites live CHR. Use it only after loading the NES-SDR ROM.</p>"
+    "<pre id=status>Loading status...</pre>"
     "<script>async function status(){let r=await fetch('/api/status');"
     "document.querySelector('#status').textContent=JSON.stringify(await r.json(),null,2)}"
     "document.querySelector('#upload').onclick=async()=>{let f=document.querySelector('#file').files[0];"
     "if(!f)return alert('Choose a .nes file');"
     "if(!confirm('The Famicom will freeze during reload. Continue?'))return;"
     "let r=await fetch('/api/upload',{method:'POST',body:f});"
-    "let t=await r.text();if(!r.ok)alert(t);await status()};status();setInterval(status,2000)</script>"
+    "let t=await r.text();if(!r.ok)alert(t);await status()};"
+    "document.querySelector('#nesdemo').onclick=async()=>{"
+    "if(!confirm('Rewrite the NES-SDR graph CHR now?'))return;"
+    "let r=await fetch('/api/nes-sdr/demo-frame',{method:'POST'});"
+    "let t=await r.text();if(!r.ok)alert(t);await status()};"
+    "status();setInterval(status,2000)</script>"
     "</main></body></html>";
 
 static esp_err_t index_handler(httpd_req_t *request)
@@ -111,6 +120,50 @@ static esp_err_t upload_handler(httpd_req_t *request)
                               "{\"ok\":true,\"next\":\"Wait for solid LED, then press console RESET\"}");
 }
 
+static esp_err_t nes_sdr_demo_handler(httpd_req_t *request)
+{
+    controller_status_t status;
+    controller_get_status(&status);
+    if (!status.has_image || !status.console_power) {
+        httpd_resp_set_status(request, "409 Conflict");
+        return httpd_resp_sendstr(
+            request, "Load NES-SDR and power the Famicom before refreshing CHR");
+    }
+
+    static unsigned phase;
+    uint8_t heights[NES_SDR_COLUMNS];
+    uint8_t graph[NES_SDR_GRAPH_BYTES];
+
+    for (unsigned x = 0; x < NES_SDR_COLUMNS; ++x) {
+        const unsigned p0 = (phase + 5u) % NES_SDR_COLUMNS;
+        const unsigned p1 = (phase + 16u) % NES_SDR_COLUMNS;
+        const unsigned d0 = x > p0 ? x - p0 : p0 - x;
+        const unsigned d1 = x > p1 ? x - p1 : p1 - x;
+        unsigned h = 8u + ((x * 7u + phase * 3u) % 6u);
+        if (d0 < 4u) {
+            h += (4u - d0) * 12u;
+        }
+        if (d1 < 5u) {
+            h += (5u - d1) * 7u;
+        }
+        heights[x] = (uint8_t)(h > NES_SDR_GRAPH_HEIGHT
+                                   ? NES_SDR_GRAPH_HEIGHT
+                                   : h);
+    }
+    phase = (phase + 1u) % NES_SDR_COLUMNS;
+
+    nes_sdr_render_graph(heights, graph);
+    const esp_err_t err = controller_refresh_chr(graph, sizeof(graph));
+    if (err != ESP_OK) {
+        httpd_resp_set_status(request, "500 Internal Server Error");
+        return httpd_resp_sendstr(request, esp_err_to_name(err));
+    }
+
+    httpd_resp_set_type(request, "application/json");
+    return httpd_resp_sendstr(
+        request, "{\"ok\":true,\"bytes\":3072,\"source\":\"synthetic\"}");
+}
+
 esp_err_t web_server_start(void)
 {
     ESP_RETURN_ON_ERROR(esp_netif_init(), TAG, "netif init failed");
@@ -154,7 +207,7 @@ esp_err_t web_server_start(void)
     (void)esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
 
     httpd_config_t server_config = HTTPD_DEFAULT_CONFIG();
-    server_config.max_uri_handlers = 4;
+    server_config.max_uri_handlers = 5;
     server_config.stack_size = 8192;
     httpd_handle_t server = NULL;
     ESP_RETURN_ON_ERROR(httpd_start(&server, &server_config), TAG, "HTTP server failed");
@@ -167,9 +220,16 @@ esp_err_t web_server_start(void)
     const httpd_uri_t upload_uri = {
         .uri = "/api/upload", .method = HTTP_POST, .handler = upload_handler,
     };
+    const httpd_uri_t nes_sdr_demo_uri = {
+        .uri = "/api/nes-sdr/demo-frame",
+        .method = HTTP_POST,
+        .handler = nes_sdr_demo_handler,
+    };
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(server, &index_uri), TAG, "index route failed");
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(server, &status_uri), TAG, "status route failed");
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(server, &upload_uri), TAG, "upload route failed");
+    ESP_RETURN_ON_ERROR(httpd_register_uri_handler(server, &nes_sdr_demo_uri),
+                        TAG, "NES-SDR demo route failed");
     ESP_LOGI(TAG, "SoftAP %s ready at http://192.168.4.1", config.ap.ssid);
     return ESP_OK;
 }
