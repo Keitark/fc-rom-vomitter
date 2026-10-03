@@ -23,8 +23,6 @@ enum {
     SPC1_HEADER_BYTES = 28,
     SPC1_CRC_BYTES = 4,
     SYNTH_FRAME_BYTES = SPC1_HEADER_BYTES + SYNTH_FFT_BINS + SPC1_CRC_BYTES,
-    RF_CAPTURE_MS = 50,
-    RF_FRAME_PERIOD_MS = 250,
 };
 
 static const uint8_t NES_SDR_SIGNATURE[] = "NES-SDR1";
@@ -129,7 +127,7 @@ static int refresh_graph(void *context, const uint8_t *graph, size_t length)
 static bool rf_capture(void *context, const uint8_t **frame, size_t *length)
 {
     const int64_t start = esp_timer_get_time();
-    const bool ok = nes_sdr_rf_backend_capture(2442u, RF_CAPTURE_MS, frame, length);
+    const bool ok = nes_sdr_rf_backend_capture(2442u, 50u, frame, length);
     if (context != NULL) {
         ((rf_cycle_timing_t *)context)->capture_us = esp_timer_get_time() - start;
     }
@@ -269,15 +267,13 @@ static void rf_task(void *context)
         ESP_LOGI(TAG, "RF frame %" PRIu32 " result=%d capture=%" PRId64
                  "us render=%" PRId64 "us refresh=%" PRId64
                  "us total=%" PRId64 "us period=%" PRId64
-                 "us target=%dus",
+                 "us target=200000us",
                  s_stats.attempts, (int)result, timing.capture_us, render_us,
-                 timing.refresh_us, total_us, period_us,
-                 RF_FRAME_PERIOD_MS * 1000);
-        if (total_us > RF_FRAME_PERIOD_MS * 1000) {
-            ESP_LOGW(TAG, "RF frame exceeded the %d ms budget",
-                     RF_FRAME_PERIOD_MS);
+                 timing.refresh_us, total_us, period_us);
+        if (total_us > 200000) {
+            ESP_LOGW(TAG, "RF frame exceeded the 200 ms budget");
         }
-        vTaskDelayUntil(&wake, pdMS_TO_TICKS(RF_FRAME_PERIOD_MS));
+        vTaskDelayUntil(&wake, pdMS_TO_TICKS(200));
     }
 
 fail:
