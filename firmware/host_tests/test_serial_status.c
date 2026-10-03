@@ -1,0 +1,69 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include "controller.h"
+#include "esp_heap_caps.h"
+#include "esp_wifi.h"
+#include "nes_sdr_platform.h"
+#include "serial_status.h"
+
+#define CHECK(condition) do { if (!(condition)) { \
+    fprintf(stderr, "%s:%d: %s\n", __FILE__, __LINE__, #condition); exit(1); \
+} } while (0)
+
+static wifi_mode_t mode;
+static esp_err_t mode_error, station_error;
+static int clients, queries;
+static const char *rf_state = "running";
+static char output[1024];
+static unsigned lines;
+static void emit(const char *line, void *context)
+{
+    CHECK(context == output);
+    CHECK(strlen(output) + strlen(line) < sizeof(output));
+    memcpy(output + strlen(output), line, strlen(line) + 1u); ++lines;
+}
+void nes_sdr_platform_get_rf_status(nes_sdr_rf_status_t *status)
+{ *status = (nes_sdr_rf_status_t){100, 98, 0, 200000, 0x12345678}; }
+const char *nes_sdr_platform_rf_state_name(void) { return rf_state; }
+bool nes_sdr_platform_rf_available(void) { return true; }
+esp_err_t esp_wifi_get_mode(wifi_mode_t *result) { *result = mode; return mode_error; }
+esp_err_t esp_wifi_ap_get_sta_list(wifi_sta_list_t *stations)
+{ ++queries; stations->num = clients; return station_error; }
+const char *esp_err_to_name(esp_err_t error) { return error == ESP_OK ? "ESP_OK" : "ESP_FAIL"; }
+void controller_get_status(controller_status_t *status)
+{
+    CHECK(lines == 2); /* RF/AP must arrive before a potentially busy controller. */
+    *status = (controller_status_t){.has_image = true, .console_power = true,
+        .console_exposed = true, .mode = CONTROLLER_READY, .sequence = 9,
+        .image_crc32 = 0x92acccb3};
+}
+const char *controller_mode_name(controller_mode_t value)
+{ CHECK(value == CONTROLLER_READY); return "ready"; }
+size_t heap_caps_get_free_size(uint32_t caps) { (void)caps; return 32768; }
+size_t heap_caps_get_largest_free_block(uint32_t caps) { (void)caps; return 16384; }
+static void run(void)
+{
+    output[0] = 0; lines = 0; queries = 0;
+    serial_status_send(emit, output);
+    CHECK(lines == 3);
+}
+int main(void)
+{
+    serial_status_send(NULL, NULL);
+    mode = WIFI_MODE_NULL; run();
+    CHECK(strstr(output, "RVST rf=running available=1 attempts=100 frames_ok=98 result=0 period_us=200000 graph_crc32=12345678\n"));
+    CHECK(strstr(output, "RVAP mode=null clients=0 error=ESP_OK\n") && queries == 0);
+    CHECK(strstr(output, "RVROM image=1 power=1 exposed=1 mode=ready sequence=9"));
+    mode = WIFI_MODE_AP; clients = 2; rf_state = "idle"; run();
+    CHECK(strstr(output, "RVAP mode=ap clients=2 error=ESP_OK\n") && queries == 1);
+    mode = WIFI_MODE_APSTA; clients = 1; run();
+    CHECK(strstr(output, "RVAP mode=apsta clients=1 error=ESP_OK\n"));
+    station_error = ESP_FAIL; run();
+    CHECK(strstr(output, "clients=-1 error=ESP_FAIL\n"));
+    mode_error = ESP_FAIL; run();
+    CHECK(strstr(output, "RVAP mode=unknown clients=-1 error=ESP_FAIL\n") && queries == 0);
+    puts("Serial status: RF progress, AP clients, query errors, and response order pass");
+    return 0;
+}

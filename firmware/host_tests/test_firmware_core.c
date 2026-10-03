@@ -209,6 +209,26 @@ static void test_usb_transport_header(void)
                                 error, sizeof(error)) != 0);
 }
 
+static void test_usb_command_scan(void)
+{
+    unsigned matched = 0;
+    /* Noise, overlapping prefixes, both commands, and a damaged command. */
+    const char *stream = "noiseRRVRVSTRVUP\nRVSXRVRVST";
+    const rom_usb_command_t expected[] = {
+        ROM_USB_COMMAND_STATUS, ROM_USB_COMMAND_UPLOAD, ROM_USB_COMMAND_STATUS
+    };
+    unsigned commands = 0;
+    for (const char *p = stream; *p; ++p) {
+        rom_usb_command_t result = rom_usb_command_feed(&matched, (uint8_t)*p);
+        if (result != ROM_USB_COMMAND_NONE) {
+            CHECK(commands < 3u && result == expected[commands++]);
+            CHECK(matched == 0u);
+        }
+    }
+    CHECK(commands == 3u);
+    CHECK(rom_usb_command_feed(NULL, 'R') == ROM_USB_COMMAND_NONE);
+}
+
 int main(void)
 {
     test_crc();
@@ -219,6 +239,7 @@ int main(void)
     test_slot_selection();
     test_image_equality();
     test_usb_transport_header();
+    test_usb_command_scan();
     puts("firmware core tests passed");
     return 0;
 }

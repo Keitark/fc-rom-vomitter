@@ -4,6 +4,7 @@
 #include <inttypes.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <stdatomic.h>
 #include <string.h>
 
 #include "cloud_sync.h"
@@ -44,7 +45,12 @@ static nes_sdr_live_stats_t s_stats;
 static uint32_t s_frame_number;
 static unsigned s_phase;
 static TaskHandle_t s_rf_task;
-static volatile rf_state_t s_rf_state = RF_STATE_IDLE;
+static _Atomic rf_state_t s_rf_state = RF_STATE_IDLE;
+static _Atomic uint32_t s_rf_attempts;
+static _Atomic uint32_t s_rf_frames_ok;
+static _Atomic int s_rf_last_result = -1;
+static _Atomic uint32_t s_rf_period_us;
+static _Atomic uint32_t s_rf_graph_crc32;
 
 typedef struct {
     int64_t capture_us;
@@ -162,6 +168,16 @@ const char *nes_sdr_platform_rf_state_name(void)
     }
 }
 
+void nes_sdr_platform_get_rf_status(nes_sdr_rf_status_t *status)
+{
+    if (status == NULL) return;
+    status->attempts = atomic_load(&s_rf_attempts);
+    status->frames_ok = atomic_load(&s_rf_frames_ok);
+    status->last_result = atomic_load(&s_rf_last_result);
+    status->period_us = atomic_load(&s_rf_period_us);
+    status->graph_crc32 = atomic_load(&s_rf_graph_crc32);
+}
+
 esp_err_t nes_sdr_platform_demo_step(void)
 {
     const nes_sdr_live_ops_t ops = {
@@ -245,6 +261,14 @@ static void rf_task(void *context)
             nes_sdr_live_step(&ops, &s_stats, s_graph);
         const int64_t total_us = esp_timer_get_time() - start;
         controller_live_cycle_end();
+        atomic_store(&s_rf_last_result, (int)result);
+        atomic_store(&s_rf_period_us,
+                     period_us > UINT32_MAX ? UINT32_MAX : (uint32_t)period_us);
+        if (result == NES_SDR_LIVE_OK) {
+            atomic_store(&s_rf_graph_crc32, nescart_crc32(s_graph, sizeof(s_graph)));
+            atomic_fetch_add(&s_rf_frames_ok, 1u);
+        }
+        atomic_fetch_add(&s_rf_attempts, 1u);
         const int64_t render_us = total_us - timing.capture_us - timing.refresh_us;
         ESP_LOGI(TAG, "RF frame %" PRIu32 " result=%d capture=%" PRId64
                  "us render=%" PRId64 "us refresh=%" PRId64

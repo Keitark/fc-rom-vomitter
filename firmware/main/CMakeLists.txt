@@ -10,6 +10,7 @@ idf_component_register(
         "rom_slot.c"
         "rom_store.c"
         "rom_transport_protocol.c"
+        "serial_status.c"
         "sram_bus.c"
         "status_led.c"
         "usb_loader.c"

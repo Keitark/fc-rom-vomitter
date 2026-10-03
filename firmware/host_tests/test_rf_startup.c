@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <setjmp.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -28,6 +29,11 @@ static esp_err_t stop_http_result;
 static bool http_stopped;
 static bool wifi_stopped;
 static bool mode_null;
+static TaskFunction_t rf_entry;
+static jmp_buf rf_done;
+static unsigned rf_cycles;
+static int64_t now_us = 100; /* Firmware RF start happens after boot, not at t=0. */
+static nes_sdr_live_result_t cycle_result = NES_SDR_LIVE_OK;
 
 static void event(int value) { CHECK(event_count < 16); events[event_count++] = value; }
 static void reset_fixture(void)
@@ -75,6 +81,7 @@ BaseType_t xTaskCreatePinnedToCore(TaskFunction_t entry, const char *name,
     CHECK(context == NULL && priority == 5 && core == 0);
     event(CREATE_RF);
     if (fail_allocation) return 0;
+    rf_entry = entry;
     *handle = (void *)1;
     return pdPASS;
 }
@@ -83,9 +90,26 @@ size_t heap_caps_get_free_size(uint32_t caps) { (void)caps; return 32768; }
 size_t heap_caps_get_largest_free_block(uint32_t caps) { (void)caps; return http_stopped ? 16384 : 4096; }
 void test_log(const char *tag, const char *format, ...) { (void)tag; (void)format; }
 const char *esp_err_to_name(esp_err_t error) { (void)error; return "test-error"; }
-int64_t esp_timer_get_time(void) { return 0; }
+int64_t esp_timer_get_time(void) { return now_us; }
+uint32_t nescart_crc32(const void *data, size_t length)
+{ (void)data; CHECK(length == NES_SDR_GRAPH_BYTES); return 0x12345678; }
 TickType_t xTaskGetTickCount(void) { return 0; }
-void vTaskDelayUntil(TickType_t *wake, TickType_t period) { (void)wake; (void)period; }
+void vTaskDelayUntil(TickType_t *wake, TickType_t period)
+{
+    (void)wake; CHECK(period == 200);
+    nes_sdr_rf_status_t status;
+    nes_sdr_platform_get_rf_status(&status);
+    ++rf_cycles;
+    CHECK(status.attempts == rf_cycles && status.frames_ok == 1);
+    CHECK(status.graph_crc32 == 0x12345678);
+    CHECK(status.last_result == (int)cycle_result);
+    if (rf_cycles == 2) {
+        CHECK(status.period_us == 200000);
+        longjmp(rf_done, 1);
+    }
+    now_us += 200000;
+    cycle_result = NES_SDR_LIVE_CAPTURE_FAILED;
+}
 void vTaskDelete(TaskHandle_t task) { (void)task; }
 esp_err_t esp_wifi_start(void) { return ESP_OK; }
 esp_err_t esp_wifi_set_ps(int mode) { (void)mode; return ESP_OK; }
@@ -104,10 +128,16 @@ void controller_live_cycle_end(void) {}
 nes_sdr_live_result_t nes_sdr_live_step(const nes_sdr_live_ops_t *ops,
                                       nes_sdr_live_stats_t *stats,
                                       uint8_t graph[NES_SDR_GRAPH_BYTES])
-{ (void)ops; (void)stats; (void)graph; return NES_SDR_LIVE_OK; }
+{ (void)ops; (void)stats; (void)graph; return cycle_result; }
 
 int main(void)
 {
+    nes_sdr_rf_status_t status;
+    nes_sdr_platform_get_rf_status(&status);
+    CHECK(status.attempts == 0 && status.frames_ok == 0 && status.last_result == -1);
+    CHECK(nes_sdr_platform_demo_step() == ESP_OK);
+    nes_sdr_platform_get_rf_status(&status);
+    CHECK(status.attempts == 0 && status.frames_ok == 0); /* Demo is not RF. */
     backend_available = false;
     CHECK(nes_sdr_platform_start_rf() == ESP_ERR_NOT_SUPPORTED);
     backend_available = true; cloud_enabled = true;
@@ -144,6 +174,9 @@ int main(void)
     nes_sdr_platform_service_rf_start();
     CHECK(event_count == 5); /* An accepted request is serviced once. */
     CHECK(nes_sdr_platform_start_rf() == ESP_ERR_INVALID_STATE);
+    CHECK(rf_entry != NULL);
+    if (setjmp(rf_done) == 0) rf_entry(NULL);
+    CHECK(rf_cycles == 2 && strcmp(nes_sdr_platform_rf_state_name(), "running") == 0);
     puts("RF startup ordering, gates, allocation failure and recovery: pass");
     return 0;
 }

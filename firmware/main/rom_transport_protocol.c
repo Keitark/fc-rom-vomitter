@@ -5,6 +5,19 @@
 
 static const uint8_t MAGIC[4] = {'R', 'V', 'U', 'P'};
 
+rom_usb_command_t rom_usb_command_feed(unsigned *matched, uint8_t byte)
+{
+    if (matched == NULL) return ROM_USB_COMMAND_NONE;
+    const unsigned state = *matched;
+    *matched = byte == 'R' ? 1u : 0u;
+    if (state == 1u && byte == 'V') *matched = 2u;
+    if (state == 2u && byte == 'U') *matched = 3u;
+    if (state == 2u && byte == 'S') *matched = 4u;
+    if (state == 3u && byte == 'P') return ROM_USB_COMMAND_UPLOAD;
+    if (state == 4u && byte == 'T') return ROM_USB_COMMAND_STATUS;
+    return ROM_USB_COMMAND_NONE;
+}
+
 static uint16_t read_le16(const uint8_t *value)
 {
     return (uint16_t)value[0] | ((uint16_t)value[1] << 8);

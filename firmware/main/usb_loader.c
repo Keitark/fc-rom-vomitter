@@ -13,6 +13,7 @@
 #include "ines.h"
 #include "nes_sdr_platform.h"
 #include "rom_transport_protocol.h"
+#include "serial_status.h"
 #include "sdkconfig.h"
 
 static const char *TAG = "usb_loader";
@@ -43,26 +44,30 @@ static int read_exact(void *output, size_t length, TickType_t timeout)
     return 0;
 }
 
+static void send_status_line(const char *line, void *context)
+{
+    (void)context;
+    (void)usb_serial_jtag_write_bytes(line, strlen(line), pdMS_TO_TICKS(1000));
+    (void)usb_serial_jtag_wait_tx_done(pdMS_TO_TICKS(1000));
+}
+
 static int find_magic(uint8_t header[ROM_USB_HEADER_SIZE])
 {
-    static const uint8_t magic[4] = {'R', 'V', 'U', 'P'};
-    size_t matched = 0;
-    while (matched < sizeof(magic)) {
+    unsigned matched = 0;
+    for (;;) {
         nes_sdr_platform_service_rf_start();
         uint8_t value = 0;
         if (usb_serial_jtag_read_bytes(&value, 1, pdMS_TO_TICKS(250)) != 1) {
             continue;
         }
-        if (value == magic[matched]) {
-            header[matched++] = value;
-        } else {
-            matched = value == magic[0] ? 1u : 0u;
-            if (matched == 1u) {
-                header[0] = value;
-            }
+        const rom_usb_command_t command = rom_usb_command_feed(&matched, value);
+        if (command == ROM_USB_COMMAND_STATUS) {
+            serial_status_send(send_status_line, NULL);
+        } else if (command == ROM_USB_COMMAND_UPLOAD) {
+            memcpy(header, "RVUP", 4);
+            return 0;
         }
     }
-    return 0;
 }
 
 static void send_response(const char *format, ...)

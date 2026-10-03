@@ -45,7 +45,31 @@ allocation fails, startup returns to the setup AP/HTTP page with RF state
 5. Press **NES-SDR demo frame**.
 6. The spectrum bars should change without another Famicom RESET.
 
-Each click advances the synthetic two-peak pattern by one column.
+Each click advances the synthetic peaks by three FFT bins; a visible column
+change may take several clicks.
+
+## Read-only USB status
+
+With a firmware containing the serial diagnostic command, send `RVST\n` over
+USB or run `python firmware/tools/serial_status.py --port COM3`. The tool keeps
+DTR/RTS low and does not reset the board. Close other serial monitors first.
+
+Three lines report:
+
+- `RVST`: RF state, completed RF attempts, successful RF refreshes, last result
+  (`0` means success, `-1` means no completed RF cycle), most recent period in
+  microseconds, and CRC of the last successfully written graph.
+- `RVAP`: current Wi-Fi mode and associated AP station count. `null` means no
+  AP. `clients=-1` plus an error means the query failed, not zero clients.
+- `RVROM`: installed-image, detected console-power and bus-exposure flags,
+  image identity, free heap and largest block.
+
+Only increasing `frames_ok` establishes continued successful RF capture,
+render and verified CHR writes. Demo clicks do not increment these counters.
+Around `period_us=200000` is the 5 Hz target. This still does not establish that
+the Famicom TV is reading/displaying the graph correctly. Counters are atomic
+individual readings, not a single locked transaction. The command works while
+the setup AP is offline and never changes radio mode or SRAM ownership.
 
 ## ROM signature gate
 
