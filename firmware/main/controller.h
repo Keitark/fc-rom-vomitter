@@ -28,6 +28,9 @@ esp_err_t controller_init(void);
 esp_err_t controller_install_ines(const uint8_t *data, size_t length,
                                   char *error, size_t error_length);
 esp_err_t controller_refresh_chr(const uint8_t *data, size_t length);
+esp_err_t controller_refresh_chr_if_prg_matches(
+    const uint8_t *data, size_t length,
+    size_t prg_offset, const void *expected, size_t expected_length);
 bool controller_prg_matches(size_t offset, const void *expected, size_t length);
 void controller_get_status(controller_status_t *status);
 const char *controller_mode_name(controller_mode_t mode);
