@@ -179,6 +179,38 @@ esp_err_t controller_install_ines(const uint8_t *data, size_t length,
     return ESP_OK;
 }
 
+esp_err_t controller_refresh_chr(const uint8_t *data, size_t length)
+{
+    if (data == NULL || length == 0 || length > NESCART_CHR_SIZE) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (xSemaphoreTake(s_lock, portMAX_DELAY) != pdTRUE) {
+        return ESP_ERR_TIMEOUT;
+    }
+    if (s_image == NULL) {
+        xSemaphoreGive(s_lock);
+        return ESP_ERR_NOT_FOUND;
+    }
+
+    set_mode(CONTROLLER_LOADING, "Refreshing CHR SRAM and verifying readback.");
+    esp_err_t err = sram_bus_refresh_chr(data, length, s_image->mirroring,
+                                         s_status.console_power);
+    s_status.console_exposed = sram_bus_console_exposed();
+
+    if (err == ESP_OK) {
+        set_mode(CONTROLLER_READY,
+                 s_status.console_power
+                     ? "Live CHR frame ready."
+                     : "CHR frame verified. Waiting for console power.");
+    } else {
+        set_mode(CONTROLLER_ERROR,
+                 "CHR refresh failed; console remains isolated.");
+    }
+
+    xSemaphoreGive(s_lock);
+    return err;
+}
+
 void controller_get_status(controller_status_t *status)
 {
     if (status == NULL) {
