@@ -2,6 +2,9 @@
 #include "esp_check.h"
 #include "esp_log.h"
 #include "nvs_flash.h"
+#include "nes_sdr_platform.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "usb_loader.h"
 #include "web_server.h"
 
@@ -19,4 +22,11 @@ void app_main(void)
     ESP_ERROR_CHECK(usb_loader_start());
     ESP_ERROR_CHECK(web_server_start());
     ESP_LOGI(TAG, "firmware prepared; hardware validation pending board arrival");
+    /* Normally the resident USB task handles exclusive SDR startup. */
+    if (!usb_loader_enabled()) {
+        for (;;) {
+            nes_sdr_platform_service_rf_start();
+            vTaskDelay(pdMS_TO_TICKS(250));
+        }
+    }
 }

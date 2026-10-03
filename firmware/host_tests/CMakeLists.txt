@@ -15,3 +15,13 @@ else()
     target_compile_options(test_firmware_core PRIVATE -Wall -Wextra -Werror)
 endif()
 add_test(NAME firmware_core COMMAND test_firmware_core)
+
+add_executable(test_rf_startup test_rf_startup.c ../main/nes_sdr_platform.c)
+target_include_directories(test_rf_startup PRIVATE
+    esp_stubs ../main ../components/nes_sdr/include)
+if(MSVC)
+    target_compile_options(test_rf_startup PRIVATE /W4 /WX)
+else()
+    target_compile_options(test_rf_startup PRIVATE -Wall -Wextra -Werror)
+endif()
+add_test(NAME rf_startup COMMAND test_rf_startup)

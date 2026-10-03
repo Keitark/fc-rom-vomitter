@@ -11,6 +11,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "ines.h"
+#include "nes_sdr_platform.h"
 #include "rom_transport_protocol.h"
 #include "sdkconfig.h"
 
@@ -47,8 +48,9 @@ static int find_magic(uint8_t header[ROM_USB_HEADER_SIZE])
     static const uint8_t magic[4] = {'R', 'V', 'U', 'P'};
     size_t matched = 0;
     while (matched < sizeof(magic)) {
+        nes_sdr_platform_service_rf_start();
         uint8_t value = 0;
-        if (usb_serial_jtag_read_bytes(&value, 1, portMAX_DELAY) != 1) {
+        if (usb_serial_jtag_read_bytes(&value, 1, pdMS_TO_TICKS(250)) != 1) {
             continue;
         }
         if (value == magic[matched]) {

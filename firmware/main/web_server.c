@@ -9,6 +9,7 @@
 #include "cloud_sync.h"
 #include "esp_check.h"
 #include "esp_http_server.h"
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_mac.h"
 #include "esp_netif.h"
@@ -20,6 +21,7 @@
 
 static const char *TAG = "web";
 static httpd_handle_t s_server;
+static esp_err_t start_http_server(void);
 
 static const char INDEX_HTML[] =
     "<!doctype html><html><head><meta charset=utf-8>"
@@ -82,6 +84,7 @@ static esp_err_t status_handler(httpd_req_t *request)
              "\"has_image\":%s,\"sequence\":%" PRIu32 ",\"crc32\":\"%08" PRIx32 "\","
              "\"usb_upload\":%s,\"cloud_pull\":%s,\"cloud_status\":\"%s\","
              "\"nes_sdr_rf_available\":%s,\"nes_sdr_rf_state\":\"%s\","
+             "\"heap_free\":%u,\"heap_largest\":%u,"
              "\"message\":\"%s\"}",
              controller_mode_name(status.mode), status.console_power ? "true" : "false",
              status.console_exposed ? "true" : "false",
@@ -92,6 +95,8 @@ static esp_err_t status_handler(httpd_req_t *request)
              cloud_sync_status_name(),
              nes_sdr_platform_rf_available() ? "true" : "false",
              nes_sdr_platform_rf_state_name(),
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+             (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
              status.message != NULL ? status.message : "");
     httpd_resp_set_type(request, "application/json");
     return httpd_resp_sendstr(request, response);
@@ -229,6 +234,19 @@ esp_err_t web_server_stop_for_sdr(void)
     return err;
 }
 
+esp_err_t web_server_resume_after_sdr_failure(void)
+{
+    esp_err_t err = esp_wifi_stop();
+    if (err != ESP_OK && err != ESP_ERR_WIFI_NOT_STARTED) {
+        return err;
+    }
+    ESP_RETURN_ON_ERROR(esp_wifi_set_mode(WIFI_MODE_AP), TAG, "AP mode recovery failed");
+    ESP_RETURN_ON_ERROR(esp_wifi_start(), TAG, "AP restart failed");
+    ESP_RETURN_ON_ERROR(start_http_server(), TAG, "HTTP restart failed");
+    ESP_LOGI(TAG, "setup AP and HTTP server restored after SDR startup failure");
+    return ESP_OK;
+}
+
 esp_err_t web_server_start(void)
 {
     ESP_RETURN_ON_ERROR(esp_netif_init(), TAG, "netif init failed");
@@ -271,6 +289,17 @@ esp_err_t web_server_start(void)
     }
     (void)esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
 
+    ESP_RETURN_ON_ERROR(start_http_server(), TAG, "HTTP server failed");
+    ESP_LOGI(TAG, "SoftAP %s ready at http://192.168.4.1", config.ap.ssid);
+    return ESP_OK;
+}
+
+static esp_err_t start_http_server(void)
+{
+    if (s_server != NULL) {
+        return ESP_OK;
+    }
+
     httpd_config_t server_config = HTTPD_DEFAULT_CONFIG();
     server_config.max_uri_handlers = 6;
     server_config.stack_size = 8192;
@@ -303,6 +332,5 @@ esp_err_t web_server_start(void)
                         TAG, "NES-SDR demo route failed");
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_server, &nes_sdr_start_rf_uri),
                         TAG, "NES-SDR RF route failed");
-    ESP_LOGI(TAG, "SoftAP %s ready at http://192.168.4.1", config.ap.ssid);
     return ESP_OK;
 }

@@ -26,6 +26,15 @@ microseconds. The SRAM log records CHR write, verify, and console blackout
 times; a frame over 200 ms is flagged. These logs are instrumentation, not
 hardware timing evidence.
 
+SDR startup is serviced by the resident USB loader task (or `app_main` when USB
+is disabled). The HTTP handler only marks the request as starting. After a
+500 ms response grace period, the service stops HTTP and setup Wi-Fi before
+allocating the 8 KiB RF task stack. This avoids requiring an additional large
+contiguous block while setup resources are still allocated. If teardown or task
+allocation fails, startup returns to the setup AP/HTTP page with RF state
+`error`, allowing another attempt. Status includes `heap_free` and
+`heap_largest`; serial logs show both before and after teardown.
+
 ## First hardware test
 
 1. Build/flash this branch.

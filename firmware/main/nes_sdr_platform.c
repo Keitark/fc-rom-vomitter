@@ -8,6 +8,7 @@
 
 #include "cloud_sync.h"
 #include "controller.h"
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "esp_wifi.h"
@@ -192,26 +193,7 @@ static void rf_task(void *context)
 {
     (void)context;
 
-    /* Give the HTTP response time to leave before the SoftAP disappears. */
-    vTaskDelay(pdMS_TO_TICKS(500));
-
-    esp_err_t err = web_server_stop_for_sdr();
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "failed to stop HTTP server: %s", esp_err_to_name(err));
-        goto fail;
-    }
-
-    err = esp_wifi_stop();
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "failed to stop setup Wi-Fi: %s", esp_err_to_name(err));
-        goto fail;
-    }
-    err = esp_wifi_set_mode(WIFI_MODE_NULL);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "failed to select WIFI_MODE_NULL: %s", esp_err_to_name(err));
-        goto fail;
-    }
-    err = esp_wifi_start();
+    esp_err_t err = esp_wifi_start();
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "failed to restart Wi-Fi PHY: %s", esp_err_to_name(err));
         goto fail;
@@ -301,11 +283,52 @@ esp_err_t nes_sdr_platform_start_rf(void)
     }
 
     s_rf_state = RF_STATE_STARTING;
+    /* The USB loader services this request while idle. It already owns an
+     * adequate stack, so no new task is allocated while HTTP/SoftAP are live.
+     * Builds without USB use the existing app_main task as the service. */
+    return ESP_OK;
+}
+
+void nes_sdr_platform_service_rf_start(void)
+{
+    if (s_rf_state != RF_STATE_STARTING || s_rf_task != NULL) {
+        return;
+    }
+
+    /* Let the requesting HTTP handler send its response before stopping it. */
+    vTaskDelay(pdMS_TO_TICKS(500));
+    ESP_LOGI(TAG, "RF start before teardown: free=%u largest=%u",
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+             (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+
+    esp_err_t err = web_server_stop_for_sdr();
+    if (err == ESP_OK) {
+        err = esp_wifi_stop();
+    }
+    if (err == ESP_OK) {
+        err = esp_wifi_set_mode(WIFI_MODE_NULL);
+    }
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "setup teardown failed: %s", esp_err_to_name(err));
+        goto recover;
+    }
+
+    ESP_LOGI(TAG, "RF start after teardown: free=%u largest=%u",
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+             (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
     if (xTaskCreatePinnedToCore(rf_task, "nes_sdr_rf", 8192, NULL, 5,
                                 &s_rf_task, 0) != pdPASS) {
-        s_rf_task = NULL;
-        s_rf_state = RF_STATE_ERROR;
-        return ESP_ERR_NO_MEM;
+        ESP_LOGE(TAG, "RF task allocation failed after teardown (stack=8192)");
+        goto recover;
     }
-    return ESP_OK;
+    return;
+
+recover:
+    s_rf_task = NULL;
+    s_rf_state = RF_STATE_ERROR;
+    err = web_server_resume_after_sdr_failure();
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "setup recovery failed: %s; reset ESP to recover",
+                 esp_err_to_name(err));
+    }
 }
