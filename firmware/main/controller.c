@@ -211,6 +211,22 @@ esp_err_t controller_refresh_chr(const uint8_t *data, size_t length)
     return err;
 }
 
+bool controller_prg_matches(size_t offset, const void *expected, size_t length)
+{
+    if (expected == NULL || length == 0 || offset > NESCART_PRG_SIZE ||
+        length > NESCART_PRG_SIZE - offset || s_lock == NULL) {
+        return false;
+    }
+    if (xSemaphoreTake(s_lock, pdMS_TO_TICKS(100)) != pdTRUE) {
+        return false;
+    }
+
+    const bool matches =
+        s_image != NULL && memcmp(s_image->data + offset, expected, length) == 0;
+    xSemaphoreGive(s_lock);
+    return matches;
+}
+
 void controller_get_status(controller_status_t *status)
 {
     if (status == NULL) {
