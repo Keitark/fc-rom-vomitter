@@ -14,7 +14,7 @@
 #include "esp_netif.h"
 #include "esp_wifi.h"
 #include "ines.h"
-#include "nes_sdr_frame.h"
+#include "nes_sdr_platform.h"
 #include "sdkconfig.h"
 #include "usb_loader.h"
 
@@ -130,30 +130,7 @@ static esp_err_t nes_sdr_demo_handler(httpd_req_t *request)
             request, "Load NES-SDR and power the Famicom before refreshing CHR");
     }
 
-    static unsigned phase;
-    uint8_t heights[NES_SDR_COLUMNS];
-    uint8_t graph[NES_SDR_GRAPH_BYTES];
-
-    for (unsigned x = 0; x < NES_SDR_COLUMNS; ++x) {
-        const unsigned p0 = (phase + 5u) % NES_SDR_COLUMNS;
-        const unsigned p1 = (phase + 16u) % NES_SDR_COLUMNS;
-        const unsigned d0 = x > p0 ? x - p0 : p0 - x;
-        const unsigned d1 = x > p1 ? x - p1 : p1 - x;
-        unsigned h = 8u + ((x * 7u + phase * 3u) % 6u);
-        if (d0 < 4u) {
-            h += (4u - d0) * 12u;
-        }
-        if (d1 < 5u) {
-            h += (5u - d1) * 7u;
-        }
-        heights[x] = (uint8_t)(h > NES_SDR_GRAPH_HEIGHT
-                                   ? NES_SDR_GRAPH_HEIGHT
-                                   : h);
-    }
-    phase = (phase + 1u) % NES_SDR_COLUMNS;
-
-    nes_sdr_render_graph(heights, graph);
-    const esp_err_t err = controller_refresh_chr(graph, sizeof(graph));
+    const esp_err_t err = nes_sdr_platform_demo_step();
     if (err != ESP_OK) {
         httpd_resp_set_status(request, "500 Internal Server Error");
         return httpd_resp_sendstr(request, esp_err_to_name(err));
@@ -161,7 +138,7 @@ static esp_err_t nes_sdr_demo_handler(httpd_req_t *request)
 
     httpd_resp_set_type(request, "application/json");
     return httpd_resp_sendstr(
-        request, "{\"ok\":true,\"bytes\":3072,\"source\":\"synthetic\"}");
+        request, "{\"ok\":true,\"bytes\":3072,\"source\":\"synthetic-spc1\"}");
 }
 
 esp_err_t web_server_start(void)
