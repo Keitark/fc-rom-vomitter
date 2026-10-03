@@ -19,6 +19,7 @@
 #include "usb_loader.h"
 
 static const char *TAG = "web";
+static httpd_handle_t s_server;
 
 static const char INDEX_HTML[] =
     "<!doctype html><html><head><meta charset=utf-8>"
@@ -193,6 +194,19 @@ static esp_err_t nes_sdr_start_rf_handler(httpd_req_t *request)
         "{\"ok\":true,\"next\":\"SoftAP will disconnect; reset ESP to stop SDR mode\"}");
 }
 
+esp_err_t web_server_stop_for_sdr(void)
+{
+    if (s_server == NULL) {
+        return ESP_OK;
+    }
+    const esp_err_t err = httpd_stop(s_server);
+    if (err == ESP_OK) {
+        s_server = NULL;
+        ESP_LOGI(TAG, "HTTP server stopped for exclusive SDR mode");
+    }
+    return err;
+}
+
 esp_err_t web_server_start(void)
 {
     ESP_RETURN_ON_ERROR(esp_netif_init(), TAG, "netif init failed");
@@ -238,8 +252,8 @@ esp_err_t web_server_start(void)
     httpd_config_t server_config = HTTPD_DEFAULT_CONFIG();
     server_config.max_uri_handlers = 6;
     server_config.stack_size = 8192;
-    httpd_handle_t server = NULL;
-    ESP_RETURN_ON_ERROR(httpd_start(&server, &server_config), TAG, "HTTP server failed");
+    s_server = NULL;
+    ESP_RETURN_ON_ERROR(httpd_start(&s_server, &server_config), TAG, "HTTP server failed");
     const httpd_uri_t index_uri = {
         .uri = "/", .method = HTTP_GET, .handler = index_handler,
     };
@@ -259,12 +273,12 @@ esp_err_t web_server_start(void)
         .method = HTTP_POST,
         .handler = nes_sdr_start_rf_handler,
     };
-    ESP_RETURN_ON_ERROR(httpd_register_uri_handler(server, &index_uri), TAG, "index route failed");
-    ESP_RETURN_ON_ERROR(httpd_register_uri_handler(server, &status_uri), TAG, "status route failed");
-    ESP_RETURN_ON_ERROR(httpd_register_uri_handler(server, &upload_uri), TAG, "upload route failed");
-    ESP_RETURN_ON_ERROR(httpd_register_uri_handler(server, &nes_sdr_demo_uri),
+    ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_server, &index_uri), TAG, "index route failed");
+    ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_server, &status_uri), TAG, "status route failed");
+    ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_server, &upload_uri), TAG, "upload route failed");
+    ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_server, &nes_sdr_demo_uri),
                         TAG, "NES-SDR demo route failed");
-    ESP_RETURN_ON_ERROR(httpd_register_uri_handler(server, &nes_sdr_start_rf_uri),
+    ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_server, &nes_sdr_start_rf_uri),
                         TAG, "NES-SDR RF route failed");
     ESP_LOGI(TAG, "SoftAP %s ready at http://192.168.4.1", config.ap.ssid);
     return ESP_OK;
