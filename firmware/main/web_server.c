@@ -129,6 +129,11 @@ static esp_err_t nes_sdr_demo_handler(httpd_req_t *request)
         return httpd_resp_sendstr(
             request, "Load NES-SDR and power the Famicom before refreshing CHR");
     }
+    if (!nes_sdr_platform_image_supported()) {
+        httpd_resp_set_status(request, "409 Conflict");
+        return httpd_resp_sendstr(
+            request, "Installed ROM is not a signed NES-SDR image");
+    }
 
     const esp_err_t err = nes_sdr_platform_demo_step();
     if (err != ESP_OK) {
