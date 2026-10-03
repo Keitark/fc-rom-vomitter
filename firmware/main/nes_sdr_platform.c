@@ -16,6 +16,9 @@ enum {
     SYNTH_FRAME_BYTES = SPC1_HEADER_BYTES + SYNTH_FFT_BINS + SPC1_CRC_BYTES,
 };
 
+static const uint8_t NES_SDR_SIGNATURE[] = "NES-SDR1";
+enum { NES_SDR_SIGNATURE_PRG_OFFSET = 0x7ff0 };
+
 static uint8_t s_frame[SYNTH_FRAME_BYTES];
 static uint8_t s_graph[NES_SDR_GRAPH_BYTES];
 static nes_sdr_live_stats_t s_stats;
@@ -86,6 +89,13 @@ static int refresh_graph(void *context, const uint8_t *graph, size_t length)
 {
     (void)context;
     return controller_refresh_chr(graph, length) == ESP_OK ? 0 : -1;
+}
+
+bool nes_sdr_platform_image_supported(void)
+{
+    return controller_prg_matches(NES_SDR_SIGNATURE_PRG_OFFSET,
+                                  NES_SDR_SIGNATURE,
+                                  sizeof(NES_SDR_SIGNATURE) - 1u);
 }
 
 esp_err_t nes_sdr_platform_demo_step(void)
