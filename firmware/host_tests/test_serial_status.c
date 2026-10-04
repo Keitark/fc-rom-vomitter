@@ -56,7 +56,7 @@ void controller_get_status(controller_status_t *status)
 void ap_dhcp_trace_snapshot(ap_dhcp_trace_t *status)
 { *status = (ap_dhcp_trace_t){3, 2, 1, 2, 1}; }
 void ap_rx_trace_snapshot(ap_rx_trace_t *status)
-{ *status = (ap_rx_trace_t){5, 3, 0, 0, 0}; }
+{ *status = (ap_rx_trace_t){5, 3, 0, 0, 0, 1, ESP_OK}; }
 const char *controller_mode_name(controller_mode_t value)
 { CHECK(value == CONTROLLER_READY); return "ready"; }
 size_t heap_caps_get_free_size(uint32_t caps) { (void)caps; return 32768; }

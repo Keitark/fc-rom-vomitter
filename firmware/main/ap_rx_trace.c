@@ -1,9 +1,12 @@
 #include "ap_rx_trace.h"
 #include <stdatomic.h>
 #include "esp_heap_caps.h"
+#include "esp_wifi_netif.h"
 
 static esp_netif_t *ap_netif;
 static atomic_uint_least32_t frames, ipv4, input_error, alloc_fail, alloc_last_size;
+static atomic_uint_least32_t registered;
+static atomic_int registration_error = ESP_ERR_INVALID_STATE;
 static void allocation_failed(size_t size, uint32_t caps, const char *function)
 {
     (void)caps; (void)function;
@@ -13,6 +16,17 @@ static void allocation_failed(size_t size, uint32_t caps, const char *function)
 esp_err_t ap_rx_trace_init(void)
 { return heap_caps_register_failed_alloc_callback(allocation_failed); }
 void ap_rx_trace_bind(esp_netif_t *ap) { ap_netif = ap; }
+
+esp_err_t __real_esp_wifi_register_if_rxcb(wifi_netif_driver_t driver, esp_netif_receive_t fn, void *arg);
+esp_err_t __wrap_esp_wifi_register_if_rxcb(wifi_netif_driver_t driver, esp_netif_receive_t fn, void *arg)
+{
+    const esp_err_t result = __real_esp_wifi_register_if_rxcb(driver, fn, arg);
+    if (ap_netif != NULL && arg == ap_netif) {
+        atomic_store_explicit(&registration_error, result, memory_order_relaxed);
+        atomic_store_explicit(&registered, result == ESP_OK ? 1u : 0u, memory_order_relaxed);
+    }
+    return result;
+}
 
 esp_err_t __real_esp_netif_receive(esp_netif_t *netif, void *buffer, size_t length, void *eb);
 esp_err_t __wrap_esp_netif_receive(esp_netif_t *netif, void *buffer, size_t length, void *eb)
@@ -38,5 +52,7 @@ void ap_rx_trace_snapshot(ap_rx_trace_t *status)
         atomic_load_explicit(&ipv4, memory_order_relaxed),
         atomic_load_explicit(&input_error, memory_order_relaxed),
         atomic_load_explicit(&alloc_fail, memory_order_relaxed),
-        atomic_load_explicit(&alloc_last_size, memory_order_relaxed)};
+        atomic_load_explicit(&alloc_last_size, memory_order_relaxed),
+        atomic_load_explicit(&registered, memory_order_relaxed),
+        atomic_load_explicit(&registration_error, memory_order_relaxed)};
 }

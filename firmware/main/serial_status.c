@@ -92,9 +92,11 @@ void serial_status_send(serial_status_emit_fn emit, void *context)
     ap_rx_trace_snapshot(&rx_trace);
     snprintf(line, sizeof(line),
              "RVRX frames=%" PRIu32 " ipv4=%" PRIu32 " input_error=%" PRIu32
-             " alloc_fail=%" PRIu32 " alloc_last_size=%" PRIu32 "\n",
+             " alloc_fail=%" PRIu32 " alloc_last_size=%" PRIu32
+             " registered=%" PRIu32 " registration_error=%s\n",
              rx_trace.frames, rx_trace.ipv4, rx_trace.input_error,
-             rx_trace.alloc_fail, rx_trace.alloc_last_size);
+             rx_trace.alloc_fail, rx_trace.alloc_last_size,
+             rx_trace.registered, esp_err_to_name(rx_trace.registration_error));
     emit(line, context);
 
     /* Send RF/AP first so a busy controller cannot hide their status. */

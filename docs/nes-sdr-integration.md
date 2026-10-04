@@ -134,6 +134,8 @@ and the last requested allocation size help identify buffer pressure; they
 are not restricted to the Wi-Fi subsystem. The failure callback allocates and
 logs nothing. It is registered once before application startup and the AP
 handle is bound before Wi-Fi starts.
+`registered` and `registration_error` report the SDK AP RX callback binding
+result, observed without replacing the callback or changing its arguments.
 
 ## ROM signature gate
 

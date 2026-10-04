@@ -40,3 +40,4 @@ idf_component_get_property(lwip_lib lwip COMPONENT_LIB)
 target_compile_definitions(${lwip_lib} PRIVATE
     ESP_IDF_LWIP_HOOK_FILENAME="${CMAKE_CURRENT_SOURCE_DIR}/ap_dhcp_hooks.h")
 target_link_options(${COMPONENT_LIB} INTERFACE "-Wl,--wrap=esp_netif_receive")
+target_link_options(${COMPONENT_LIB} INTERFACE "-Wl,--wrap=esp_wifi_register_if_rxcb")
