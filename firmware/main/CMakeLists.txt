@@ -3,6 +3,7 @@ idf_component_register(
         "app_main.c"
         "ap_compat.c"
         "ap_dhcp_trace.c"
+        "ap_rx_trace.c"
         "cloud_sync.c"
         "cloud_queue.c"
         "console_power.c"
@@ -38,3 +39,4 @@ idf_component_register(
 idf_component_get_property(lwip_lib lwip COMPONENT_LIB)
 target_compile_definitions(${lwip_lib} PRIVATE
     ESP_IDF_LWIP_HOOK_FILENAME="${CMAKE_CURRENT_SOURCE_DIR}/ap_dhcp_hooks.h")
+target_link_options(${COMPONENT_LIB} INTERFACE "-Wl,--wrap=esp_netif_receive")

@@ -5,6 +5,7 @@
 
 #include "controller.h"
 #include "ap_dhcp_trace.h"
+#include "ap_rx_trace.h"
 #include "esp_heap_caps.h"
 #include "esp_netif.h"
 #include "esp_wifi.h"
@@ -85,6 +86,15 @@ void serial_status_send(serial_status_emit_fn emit, void *context)
              " offer_prepared=%" PRIu32 " ack_prepared=%" PRIu32 "\n",
              dhcp_trace.rx, dhcp_trace.discover, dhcp_trace.request,
              dhcp_trace.offer, dhcp_trace.ack);
+    emit(line, context);
+
+    ap_rx_trace_t rx_trace;
+    ap_rx_trace_snapshot(&rx_trace);
+    snprintf(line, sizeof(line),
+             "RVRX frames=%" PRIu32 " ipv4=%" PRIu32 " input_error=%" PRIu32
+             " alloc_fail=%" PRIu32 " alloc_last_size=%" PRIu32 "\n",
+             rx_trace.frames, rx_trace.ipv4, rx_trace.input_error,
+             rx_trace.alloc_fail, rx_trace.alloc_last_size);
     emit(line, context);
 
     /* Send RF/AP first so a busy controller cannot hide their status. */

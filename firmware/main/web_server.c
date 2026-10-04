@@ -7,6 +7,7 @@
 
 #include "controller.h"
 #include "ap_compat.h"
+#include "ap_rx_trace.h"
 #include "cloud_sync.h"
 #include "esp_check.h"
 #include "esp_http_server.h"
@@ -258,9 +259,11 @@ esp_err_t web_server_start(void)
 {
     ESP_RETURN_ON_ERROR(esp_netif_init(), TAG, "netif init failed");
     ESP_RETURN_ON_ERROR(esp_event_loop_create_default(), TAG, "event loop failed");
-    if (esp_netif_create_default_wifi_ap() == NULL) {
+    esp_netif_t *ap_netif = esp_netif_create_default_wifi_ap();
+    if (ap_netif == NULL) {
         return ESP_FAIL;
     }
+    ap_rx_trace_bind(ap_netif);
 #if CONFIG_NESCART_CLOUD_PULL_ENABLE
     if (esp_netif_create_default_wifi_sta() == NULL) {
         return ESP_FAIL;

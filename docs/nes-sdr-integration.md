@@ -126,6 +126,15 @@ connection attempt with a client packet capture and its assigned IPv4 address.
 The observer consumes no packets, appends no options, and creates no task or
 heap allocation. Counters reset at ESP restart.
 
+`RVRX` counts AP frames and IPv4 frames passed from the driver to esp-netif,
+and input errors returned by esp-netif. `CONFIG_ESP_NETIF_RECEIVE_REPORT_ERRORS=y`
+enables those error results. A linker observer forwards the original buffer,
+length, ownership token, and return value unchanged. Global heap failure counts
+and the last requested allocation size help identify buffer pressure; they
+are not restricted to the Wi-Fi subsystem. The failure callback allocates and
+logs nothing. It is registered once before application startup and the AP
+handle is bound before Wi-Fi starts.
+
 ## ROM signature gate
 
 The NES-SDR NROM embeds the fixed eight-byte signature `NES-SDR1` at CPU
