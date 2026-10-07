@@ -138,6 +138,15 @@ connection attempt with a client packet capture and its assigned IPv4 address.
 The observer consumes no packets, appends no options, and creates no task or
 heap allocation. Counters reset at ESP restart.
 
+Normal HTTP uses three sessions with LRU purging, one-second receive timeouts
+and two-second send timeouts. Raw ROM uploads have a shared 30-second receive
+budget and close the session on rejection/failure, avoiding unread-body drains
+on the single HTTP task. The browser pauses polling and disables duplicate
+actions during a POST, and reports network/timeouts explicitly. Uploads still
+serialize on the HTTP task while installing/verifying the image.
+See [the source audit](esp32-wifi-source-audit.md#normal-ap-operation-before-sdr)
+for the reproduced failure cases, memory limits and virtual-test boundaries.
+
 `RVRX` counts AP frames and IPv4 frames passed from the driver to esp-netif,
 and input errors returned by esp-netif. `CONFIG_ESP_NETIF_RECEIVE_REPORT_ERRORS=y`
 enables those error results. A linker observer forwards the original buffer,

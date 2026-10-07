@@ -79,3 +79,20 @@ else()
     target_compile_options(test_ap_rx_trace PRIVATE -Wall -Wextra -Werror)
 endif()
 add_test(NAME ap_rx_trace COMMAND test_ap_rx_trace)
+
+add_executable(test_web_upload test_web_upload.c ../main/web_upload.c ../main/ines.c)
+target_include_directories(test_web_upload PRIVATE http_stubs esp_stubs ../main)
+# Catch body-sized libc allocations in the real upload module without affecting
+# the test fixture or the controller's preallocated image buffer.
+set_source_files_properties(../main/web_upload.c PROPERTIES COMPILE_DEFINITIONS
+    "malloc=web_upload_test_malloc;calloc=web_upload_test_calloc;realloc=web_upload_test_realloc;free=web_upload_test_free")
+if(MSVC)
+    target_compile_options(test_web_upload PRIVATE /W4 /WX)
+else()
+    target_compile_options(test_web_upload PRIVATE -Wall -Wextra -Werror)
+endif()
+foreach(scenario valid_16 valid_32 valid_trainer empty oversized malformed
+                 disconnect timeouts controller_error deadline_across_reads
+                 deadline_trickle timeout_recovery)
+    add_test(NAME web_upload_${scenario} COMMAND test_web_upload ${scenario})
+endforeach()

@@ -17,6 +17,7 @@ idf_component_register(
         "sram_bus.c"
         "status_led.c"
         "usb_loader.c"
+        "web_upload.c"
         "web_server.c"
     INCLUDE_DIRS "."
     REQUIRES

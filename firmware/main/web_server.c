@@ -20,6 +20,7 @@
 #include "nes_sdr_platform.h"
 #include "sdkconfig.h"
 #include "usb_loader.h"
+#include "web_upload.h"
 
 static const char *TAG = "web";
 static httpd_handle_t s_server;
@@ -50,28 +51,43 @@ static const char INDEX_HTML[] =
     "<p class=warn>NES-SDR demo rewrites live CHR. Start SDR mode disconnects this Wi-Fi AP "
     "and runs until the cartridge ESP is reset.</p>"
     "<pre id=status>Loading status...</pre>"
-    "<script>let statusBusy=false,rfStarting=false;"
-    "async function status(){if(statusBusy||rfStarting)return;statusBusy=true;"
-    "let c=new AbortController(),timer=setTimeout(()=>c.abort(),4000);"
+    "<script>let statusBusy=false,operationBusy=false,rfStarting=false,statusGeneration=0;"
+    "function lockControls(locked){for(let id of ['upload','nesdemo','nesrf'])"
+    "document.querySelector('#'+id).disabled=locked}"
+    "async function status(){if(statusBusy||operationBusy||rfStarting)return;statusBusy=true;"
+    "let generation=statusGeneration,c=new AbortController(),timer=setTimeout(()=>c.abort(),4000);"
     "try{let r=await fetch('/api/status',{signal:c.signal,cache:'no-store'});"
     "if(!r.ok)throw Error('HTTP '+r.status);"
-    "document.querySelector('#status').textContent=JSON.stringify(await r.json(),null,2)}"
-    "catch(e){document.querySelector('#status').textContent='Connection interrupted; retrying...'}"
+    "let data=await r.json();if(generation===statusGeneration&&!operationBusy&&!rfStarting)"
+    "document.querySelector('#status').textContent=JSON.stringify(data,null,2)}"
+    "catch(e){if(generation===statusGeneration&&!operationBusy&&!rfStarting)"
+    "document.querySelector('#status').textContent='Connection interrupted; retrying...'}"
     "finally{clearTimeout(timer);statusBusy=false}}"
-    "document.querySelector('#upload').onclick=async()=>{let f=document.querySelector('#file').files[0];"
+    "async function action(url,body,timeout,message,startsRf=false){"
+    "if(operationBusy||rfStarting)return;operationBusy=true;statusGeneration++;lockControls(true);"
+    "document.querySelector('#status').textContent=message;"
+    "let c=new AbortController(),timer=setTimeout(()=>c.abort(),timeout),success=false;"
+    "try{let r=await fetch(url,{method:'POST',body:body,signal:c.signal});"
+    "let t=await r.text();if(!r.ok){alert(t);throw Error(t||'HTTP '+r.status)}success=true;"
+    "if(startsRf){rfStarting=true;"
+    "document.querySelector('#status').textContent='SDR mode starting; Wi-Fi will disconnect.'}}"
+    "catch(e){document.querySelector('#status').textContent=e.name==='AbortError'?"
+    "'Request timed out; check cartridge status before retrying.':'Request failed: '+e.message}"
+    "finally{clearTimeout(timer);operationBusy=false;lockControls(rfStarting)}"
+    "if(success&&!rfStarting)await status()}"
+    "document.querySelector('#upload').onclick=async()=>{if(operationBusy||rfStarting)return;"
+    "let f=document.querySelector('#file').files[0];"
     "if(!f)return alert('Choose a .nes file');"
     "if(!confirm('The Famicom will freeze during reload. Continue?'))return;"
-    "let r=await fetch('/api/upload',{method:'POST',body:f});"
-    "let t=await r.text();if(!r.ok)alert(t);await status()};"
+    "await action('/api/upload',f,45000,'Uploading and verifying ROM...')};"
     "document.querySelector('#nesdemo').onclick=async()=>{"
+    "if(operationBusy||rfStarting)return;"
     "if(!confirm('Rewrite the NES-SDR graph CHR now?'))return;"
-    "let r=await fetch('/api/nes-sdr/demo-frame',{method:'POST'});"
-    "let t=await r.text();if(!r.ok)alert(t);await status()};"
+    "await action('/api/nes-sdr/demo-frame',undefined,15000,'Updating NES-SDR demo frame...')};"
     "document.querySelector('#nesrf').onclick=async()=>{"
+    "if(operationBusy||rfStarting)return;"
     "if(!confirm('Start exclusive SDR mode? This Wi-Fi AP will disconnect.'))return;"
-    "let r=await fetch('/api/nes-sdr/start-rf',{method:'POST'});"
-    "let t=await r.text();if(!r.ok)return alert(t);rfStarting=true;"
-    "document.querySelector('#status').textContent='SDR mode starting; Wi-Fi will disconnect.'};"
+    "await action('/api/nes-sdr/start-rf',undefined,15000,'Starting SDR mode...',true)};"
     "status();setInterval(status,5000)</script>"
     "</main></body></html>";
 
@@ -107,62 +123,6 @@ static esp_err_t status_handler(httpd_req_t *request)
              status.message != NULL ? status.message : "");
     httpd_resp_set_type(request, "application/json");
     return httpd_resp_sendstr(request, response);
-}
-
-typedef struct {
-    httpd_req_t *request;
-    bool read_failed;
-} upload_reader_t;
-
-static int upload_read_exact(void *context, uint8_t *output, size_t length)
-{
-    upload_reader_t *reader = context;
-    size_t received = 0;
-    unsigned consecutive_timeouts = 0;
-    while (received < length) {
-        const size_t remaining = length - received;
-        const size_t chunk = remaining < 1024u ? remaining : 1024u;
-        const int result = httpd_req_recv(reader->request,
-                                          (char *)output + received, chunk);
-        if (result == HTTPD_SOCK_ERR_TIMEOUT) {
-            if (++consecutive_timeouts < 3u) {
-                continue;
-            }
-            reader->read_failed = true;
-            return -1;
-        }
-        if (result <= 0) {
-            reader->read_failed = true;
-            return -1;
-        }
-        consecutive_timeouts = 0;
-        received += (size_t)result;
-    }
-    return 0;
-}
-
-static esp_err_t upload_handler(httpd_req_t *request)
-{
-    if (request->content_len <= 0 || request->content_len > NESCART_MAX_INES_SIZE) {
-        httpd_resp_set_status(request, "413 Payload Too Large");
-        return httpd_resp_sendstr(request, "Invalid or oversized iNES upload");
-    }
-    upload_reader_t reader = {.request = request};
-    char error[160];
-    const esp_err_t err = controller_install_ines_stream(
-        upload_read_exact, &reader, (size_t)request->content_len,
-        error, sizeof(error));
-    if (err != ESP_OK) {
-        httpd_resp_set_status(request, reader.read_failed
-                                          ? "408 Request Timeout"
-                                          : err == ESP_ERR_INVALID_ARG
-                                                ? "400 Bad Request"
-                                                : "500 Internal Server Error");
-        return httpd_resp_sendstr(request, error);
-    }
-    httpd_resp_set_type(request, "application/json");
-    return httpd_resp_sendstr(request,
-                              "{\"ok\":true,\"next\":\"Wait for solid LED, then press console RESET\"}");
 }
 
 static esp_err_t nes_sdr_demo_handler(httpd_req_t *request)
@@ -316,6 +276,10 @@ static esp_err_t start_http_server(void)
     httpd_config_t server_config = HTTPD_DEFAULT_CONFIG();
     server_config.max_uri_handlers = 6;
     server_config.stack_size = 8192;
+    /* Keep traffic allocations bounded alongside the reserved RF ring. */
+    server_config.max_open_sockets = 3;
+    server_config.recv_wait_timeout = 1;
+    server_config.send_wait_timeout = 2;
     server_config.lru_purge_enable = true;
     s_server = NULL;
     ESP_RETURN_ON_ERROR(httpd_start(&s_server, &server_config), TAG, "HTTP server failed");
@@ -326,7 +290,7 @@ static esp_err_t start_http_server(void)
         .uri = "/api/status", .method = HTTP_GET, .handler = status_handler,
     };
     const httpd_uri_t upload_uri = {
-        .uri = "/api/upload", .method = HTTP_POST, .handler = upload_handler,
+        .uri = "/api/upload", .method = HTTP_POST, .handler = web_upload_handler,
     };
     const httpd_uri_t nes_sdr_demo_uri = {
         .uri = "/api/nes-sdr/demo-frame",
