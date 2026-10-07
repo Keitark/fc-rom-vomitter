@@ -6,6 +6,7 @@
 #include "driver/gpio.h"
 #include "esp_log.h"
 #include "esp_rom_sys.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -201,7 +202,6 @@ void sram_bus_expose_to_console(nescart_mirroring_t mirroring)
     esp_rom_delay_us(2);
     gpio_set_level(PIN_LOAD_MODE, 0);
     s_console_exposed = true;
-    ESP_LOGI(TAG, "RUN topology exposed; press the Famicom RESET button");
 }
 
 esp_err_t sram_bus_load_and_verify(const nescart_image_t *image,
@@ -230,9 +230,49 @@ esp_err_t sram_bus_load_and_verify(const nescart_image_t *image,
              prg_crc, chr_crc);
     if (expose_to_console) {
         sram_bus_expose_to_console(image->mirroring);
+        ESP_LOGI(TAG, "RUN topology exposed; press the Famicom RESET button");
     } else {
         sram_bus_hold_isolated();
     }
+    return ESP_OK;
+}
+
+esp_err_t sram_bus_refresh_chr(const uint8_t *data, size_t length,
+                               nescart_mirroring_t mirroring,
+                               bool expose_to_console)
+{
+    if (data == NULL || length == 0 || length > NESCART_CHR_SIZE) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    const int64_t start = esp_timer_get_time();
+    sram_bus_hold_isolated();
+    esp_err_t err = write_region(CHIP_CHR, data, length);
+    const int64_t written = esp_timer_get_time();
+    uint32_t chr_crc = 0;
+    if (err == ESP_OK) {
+        err = verify_region(CHIP_CHR, data, length, &chr_crc);
+    }
+    const int64_t verified = esp_timer_get_time();
+    if (err != ESP_OK) {
+        sram_bus_hold_isolated();
+        ESP_LOGE(TAG, "CHR refresh failed: write=%" PRId64
+                 "us verify=%" PRId64 "us (%s)",
+                 written - start, verified - written, esp_err_to_name(err));
+        return err;
+    }
+
+    if (expose_to_console) {
+        sram_bus_expose_to_console(mirroring);
+    } else {
+        sram_bus_hold_isolated();
+    }
+    const int64_t finished = esp_timer_get_time();
+    ESP_LOGI(TAG, "CHR refresh verified: %u bytes, CRC %08" PRIx32
+             ", write=%" PRId64 "us verify=%" PRId64
+             "us blackout=%" PRId64 "us",
+             (unsigned)length, chr_crc, written - start,
+             verified - written, finished - start);
     return ESP_OK;
 }
 

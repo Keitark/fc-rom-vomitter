@@ -73,6 +73,50 @@ static void test_nrom_256_with_trainer(void)
     free(rom);
 }
 
+typedef struct {
+    const uint8_t *data;
+    size_t length;
+    size_t offset;
+} memory_reader_t;
+
+static int memory_read_exact(void *context, uint8_t *output, size_t length)
+{
+    memory_reader_t *reader = context;
+    if (length > reader->length - reader->offset) {
+        return -1;
+    }
+    memcpy(output, reader->data + reader->offset, length);
+    reader->offset += length;
+    return 0;
+}
+
+static void test_streamed_normalization(void)
+{
+    for (unsigned prg_banks = 1; prg_banks <= 2; ++prg_banks) {
+        size_t length;
+        uint8_t *rom = make_rom(prg_banks, prg_banks == 2 ? 0x04 : 0x01,
+                                0, 1, &length);
+        nescart_image_t *reference = calloc(1, sizeof(*reference));
+        nescart_image_t *streamed = calloc(1, sizeof(*streamed));
+        CHECK(reference != NULL && streamed != NULL);
+        char error[128];
+        CHECK(ines_normalize(rom, length, reference, error, sizeof(error)) == 0);
+        memory_reader_t reader = {.data = rom, .length = length};
+        CHECK(ines_normalize_stream(memory_read_exact, &reader, length, streamed,
+                                    error, sizeof(error)) == 0);
+        CHECK(reader.offset == length);
+        CHECK(nescart_image_equal(reference, streamed));
+
+        reader.offset = 0;
+        reader.length = length - 1u;
+        CHECK(ines_normalize_stream(memory_read_exact, &reader, length, streamed,
+                                    error, sizeof(error)) != 0);
+        free(streamed);
+        free(reference);
+        free(rom);
+    }
+}
+
 static void test_rejections(void)
 {
     size_t length;
@@ -165,15 +209,37 @@ static void test_usb_transport_header(void)
                                 error, sizeof(error)) != 0);
 }
 
+static void test_usb_command_scan(void)
+{
+    unsigned matched = 0;
+    /* Noise, overlapping prefixes, both commands, and a damaged command. */
+    const char *stream = "noiseRRVRVSTRVUP\nRVSXRVRVST";
+    const rom_usb_command_t expected[] = {
+        ROM_USB_COMMAND_STATUS, ROM_USB_COMMAND_UPLOAD, ROM_USB_COMMAND_STATUS
+    };
+    unsigned commands = 0;
+    for (const char *p = stream; *p; ++p) {
+        rom_usb_command_t result = rom_usb_command_feed(&matched, (uint8_t)*p);
+        if (result != ROM_USB_COMMAND_NONE) {
+            CHECK(commands < 3u && result == expected[commands++]);
+            CHECK(matched == 0u);
+        }
+    }
+    CHECK(commands == 3u);
+    CHECK(rom_usb_command_feed(NULL, 'R') == ROM_USB_COMMAND_NONE);
+}
+
 int main(void)
 {
     test_crc();
     test_nrom_128();
     test_nrom_256_with_trainer();
+    test_streamed_normalization();
     test_rejections();
     test_slot_selection();
     test_image_equality();
     test_usb_transport_header();
+    test_usb_command_scan();
     puts("firmware core tests passed");
     return 0;
 }

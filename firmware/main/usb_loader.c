@@ -2,7 +2,6 @@
 
 #include <stdarg.h>
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 
 #include "controller.h"
@@ -12,7 +11,9 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "ines.h"
+#include "nes_sdr_platform.h"
 #include "rom_transport_protocol.h"
+#include "serial_status.h"
 #include "sdkconfig.h"
 
 static const char *TAG = "usb_loader";
@@ -43,25 +44,30 @@ static int read_exact(void *output, size_t length, TickType_t timeout)
     return 0;
 }
 
+static void send_status_line(const char *line, void *context)
+{
+    (void)context;
+    (void)usb_serial_jtag_write_bytes(line, strlen(line), pdMS_TO_TICKS(1000));
+    (void)usb_serial_jtag_wait_tx_done(pdMS_TO_TICKS(1000));
+}
+
 static int find_magic(uint8_t header[ROM_USB_HEADER_SIZE])
 {
-    static const uint8_t magic[4] = {'R', 'V', 'U', 'P'};
-    size_t matched = 0;
-    while (matched < sizeof(magic)) {
+    unsigned matched = 0;
+    for (;;) {
+        nes_sdr_platform_service_rf_start();
         uint8_t value = 0;
-        if (usb_serial_jtag_read_bytes(&value, 1, portMAX_DELAY) != 1) {
+        if (usb_serial_jtag_read_bytes(&value, 1, pdMS_TO_TICKS(250)) != 1) {
             continue;
         }
-        if (value == magic[matched]) {
-            header[matched++] = value;
-        } else {
-            matched = value == magic[0] ? 1u : 0u;
-            if (matched == 1u) {
-                header[0] = value;
-            }
+        const rom_usb_command_t command = rom_usb_command_feed(&matched, value);
+        if (command == ROM_USB_COMMAND_STATUS) {
+            serial_status_send(send_status_line, NULL);
+        } else if (command == ROM_USB_COMMAND_UPLOAD) {
+            memcpy(header, "RVUP", 4);
+            return 0;
         }
     }
-    return 0;
 }
 
 static void send_response(const char *format, ...)
@@ -79,6 +85,36 @@ static void send_response(const char *format, ...)
                                : sizeof(response) - 1u;
     (void)usb_serial_jtag_write_bytes(response, bounded, pdMS_TO_TICKS(1000));
     (void)usb_serial_jtag_wait_tx_done(pdMS_TO_TICKS(1000));
+}
+
+typedef struct {
+    size_t remaining;
+    uint32_t crc_state;
+    uint32_t expected_crc;
+    uint32_t actual_crc;
+    bool read_failed;
+    bool crc_mismatch;
+} usb_reader_t;
+
+static int usb_read_exact(void *context, uint8_t *output, size_t length)
+{
+    usb_reader_t *reader = context;
+    if (length > reader->remaining ||
+        read_exact(output, length,
+                   pdMS_TO_TICKS(CONFIG_NESCART_USB_UPLOAD_TIMEOUT_MS)) != 0) {
+        reader->read_failed = true;
+        return -1;
+    }
+    reader->crc_state = nescart_crc32_update(reader->crc_state, output, length);
+    reader->remaining -= length;
+    if (reader->remaining == 0) {
+        reader->actual_crc = nescart_crc32_finish(reader->crc_state);
+        if (reader->actual_crc != reader->expected_crc) {
+            reader->crc_mismatch = true;
+            return -1;
+        }
+    }
+    return 0;
 }
 
 static void usb_loader_task(void *context)
@@ -102,29 +138,23 @@ static void usb_loader_task(void *context)
             continue;
         }
 
-        uint8_t *payload = malloc(header.payload_length);
-        if (payload == NULL) {
-            send_response("RVER memory allocation_failed\n");
-            continue;
-        }
-        if (read_exact(payload, header.payload_length,
-                       pdMS_TO_TICKS(CONFIG_NESCART_USB_UPLOAD_TIMEOUT_MS)) != 0) {
-            free(payload);
+        usb_reader_t reader = {
+            .remaining = header.payload_length,
+            .crc_state = nescart_crc32_begin(),
+            .expected_crc = header.payload_crc32,
+        };
+        const esp_err_t err = controller_install_ines_stream(
+            usb_read_exact, &reader, header.payload_length, error, sizeof(error));
+        if (reader.read_failed) {
             send_response("RVER timeout incomplete_payload\n");
             continue;
         }
-        const uint32_t actual_crc = nescart_crc32(payload, header.payload_length);
-        if (actual_crc != header.payload_crc32) {
-            free(payload);
+        if (reader.crc_mismatch) {
             send_response("RVER crc expected_%08lx_got_%08lx\n",
                           (unsigned long)header.payload_crc32,
-                          (unsigned long)actual_crc);
+                          (unsigned long)reader.actual_crc);
             continue;
         }
-
-        const esp_err_t err = controller_install_ines(
-            payload, header.payload_length, error, sizeof(error));
-        free(payload);
         if (err != ESP_OK) {
             send_response("RVER install %s\n", error);
             continue;

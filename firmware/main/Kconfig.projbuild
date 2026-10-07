@@ -11,6 +11,15 @@ config NESCART_AP_CHANNEL
     range 1 13
     default 6
 
+config NESCART_AP_HT_ENABLE
+    bool "Allow 802.11n on the setup access point"
+    default n
+    help
+        The default 802.11b/g, 20 MHz AP avoids HT/block-ack interoperability
+        failures on older upload clients. Enable 802.11n only after qualifying
+        DHCP and repeated page/ROM uploads with the intended clients. Even
+        when enabled, the setup AP stays at 20 MHz.
+
 config NESCART_WIFI_TX_POWER_QDBM
     int "Maximum Wi-Fi TX power in quarter-dBm"
     range 8 80
