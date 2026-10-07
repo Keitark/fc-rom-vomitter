@@ -35,6 +35,8 @@ typedef enum {
     RF_STATE_IDLE,
     RF_STATE_STARTING,
     RF_STATE_RUNNING,
+    RF_STATE_RECOVERING_ERROR,
+    RF_STATE_RESET_REQUIRED,
     RF_STATE_ERROR,
 } rf_state_t;
 
@@ -162,6 +164,8 @@ const char *nes_sdr_platform_rf_state_name(void)
     case RF_STATE_IDLE: return "idle";
     case RF_STATE_STARTING: return "starting";
     case RF_STATE_RUNNING: return "running";
+    case RF_STATE_RECOVERING_ERROR:
+    case RF_STATE_RESET_REQUIRED:
     case RF_STATE_ERROR: return "error";
     case RF_STATE_UNAVAILABLE:
     default: return "unavailable";
@@ -208,6 +212,7 @@ esp_err_t nes_sdr_platform_demo_step(void)
 static void rf_task(void *context)
 {
     (void)context;
+    bool capture_started = false;
 
     esp_err_t err = esp_wifi_start();
     if (err != ESP_OK) {
@@ -254,6 +259,7 @@ static void rf_task(void *context)
         }
         /* Re-anchor after any USB upload that held the controller lock. */
         wake = xTaskGetTickCount();
+        capture_started = true;
         const int64_t start = esp_timer_get_time();
         const int64_t period_us = previous_start == 0 ? 0 : start - previous_start;
         previous_start = start;
@@ -283,8 +289,10 @@ static void rf_task(void *context)
     }
 
 fail:
-    s_rf_state = RF_STATE_ERROR;
     s_rf_task = NULL;
+    /* Before capture, ordinary Wi-Fi APIs can restore setup. After capture,
+     * the backend may have changed PHY registers; that path requires reset. */
+    s_rf_state = capture_started ? RF_STATE_RESET_REQUIRED : RF_STATE_RECOVERING_ERROR;
     vTaskDelete(NULL);
 }
 
@@ -302,6 +310,8 @@ esp_err_t nes_sdr_platform_start_rf(void)
     if (!status.console_power ||
         s_rf_state == RF_STATE_STARTING ||
         s_rf_state == RF_STATE_RUNNING ||
+        s_rf_state == RF_STATE_RECOVERING_ERROR ||
+        s_rf_state == RF_STATE_RESET_REQUIRED ||
         s_rf_task != NULL) {
         return ESP_ERR_INVALID_STATE;
     }
@@ -315,6 +325,18 @@ esp_err_t nes_sdr_platform_start_rf(void)
 
 void nes_sdr_platform_service_rf_start(void)
 {
+    if (s_rf_state == RF_STATE_RECOVERING_ERROR) {
+        /* Self-deleted task stacks are reclaimed by the idle task. Let it run
+         * before allocating HTTP/AP resources on this resident task's stack. */
+        vTaskDelay(pdMS_TO_TICKS(500));
+        const esp_err_t err = web_server_resume_after_sdr_failure();
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "RF startup recovery failed: %s; reset ESP to recover",
+                     esp_err_to_name(err));
+        }
+        s_rf_state = RF_STATE_ERROR;
+        return;
+    }
     if (s_rf_state != RF_STATE_STARTING || s_rf_task != NULL) {
         return;
     }
@@ -349,10 +371,11 @@ void nes_sdr_platform_service_rf_start(void)
 
 recover:
     s_rf_task = NULL;
-    s_rf_state = RF_STATE_ERROR;
+    s_rf_state = RF_STATE_RECOVERING_ERROR;
     err = web_server_resume_after_sdr_failure();
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "setup recovery failed: %s; reset ESP to recover",
                  esp_err_to_name(err));
     }
+    s_rf_state = RF_STATE_ERROR;
 }

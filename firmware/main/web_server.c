@@ -243,6 +243,8 @@ esp_err_t web_server_stop_for_sdr(void)
 
 esp_err_t web_server_resume_after_sdr_failure(void)
 {
+    ESP_RETURN_ON_ERROR(esp_wifi_set_promiscuous(false), TAG,
+                        "promiscuous mode teardown failed");
     esp_err_t err = esp_wifi_stop();
     if (err != ESP_OK && err != ESP_ERR_WIFI_NOT_STARTED) {
         return err;

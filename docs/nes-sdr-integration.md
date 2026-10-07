@@ -35,6 +35,18 @@ allocation fails, startup returns to the setup AP/HTTP page with RF state
 `error`, allowing another attempt. Status includes `heap_free` and
 `heap_largest`; serial logs show both before and after teardown.
 
+Wi-Fi API failures inside the RF task before its first capture also schedule
+setup recovery. The failed task exits first, and the resident service yields
+500 ms to give the idle task time to reclaim its stack before rebuilding AP/HTTP.
+Promiscuous mode is explicitly disabled during recovery. RF reports `error`
+while recovery is pending; a new start is rejected until recovery finishes.
+After capture has begun, the backend may have modified PHY registers; a fatal
+console/image gate failure requires an ESP reset to return to setup and blocks
+another RF start until reset.
+Native fault-injection tests cover Wi-Fi start, power-save configuration,
+promiscuous enable and channel setup failures. They simulate SDK errors and
+task lifecycle; they do not emulate radio reception or WPA negotiation.
+
 ## First hardware test
 
 1. Build/flash this branch.
